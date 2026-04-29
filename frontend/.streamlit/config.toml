@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#002a61"          # Azul Marathon
+backgroundColor = "#f0f2f6"       # Gris muy claro (moderno)
+secondaryBackgroundColor = "#ffffff" # Blanco para las Cards
+textColor = "#31333F"
+font = "sans serif"

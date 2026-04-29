@@ -1,0 +1,87 @@
+/* --- LIMPIEZA TOTAL DEL UPLOADER (Estilo Minimalista) --- */
+
+/* 1. Eliminar recuadros, bordes y fondos grises pesados */
+[data-testid="stFileUploaderDropzone"] {
+    border: none !important;
+    background-color: transparent !important;
+    padding: 0 !important;
+    margin-top: 10px !important;
+    display: flex !important;
+    justify-content: center !important;
+}
+
+/* 2. Ocultar absolutamente todos los textos e iconos de ayuda */
+[data-testid="stFileUploaderDropzoneInstructions"],
+[data-testid="stFileUploaderDropzone"] svg,
+[data-testid="stFileUploaderDropzone"] small {
+    display: none !important;
+}
+
+/* 3. El Botón: Moderno, Plano y Minimalista */
+[data-testid="stFileUploaderDropzone"] button {
+    font-size: 0 !important;
+    background-color: #f0f2f6 !important;
+    /* Gris muy suave de fondo */
+    color: #002a61 !important;
+    /* Texto en Azul Marathon */
+    border: 1px solid #d1d5db !important;
+    padding: 12px 24px !important;
+    width: 100% !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    transition: all 0.3s ease !important;
+    box-shadow: none !important;
+}
+
+/* 4. Efecto Hover Moderno */
+[data-testid="stFileUploaderDropzone"] button:hover {
+    background-color: #002a61 !important;
+    /* Cambia a Azul Marathon */
+    color: white !important;
+    /* Texto a blanco */
+    border-color: #002a61 !important;
+    cursor: pointer !important;
+}
+
+/* 5. Inyectar el texto en el botón */
+[data-testid="stFileUploaderDropzone"] button::after {
+    content: "⤴️ Seleccionar archivo";
+    font-size: 14px !important;
+    display: block;
+    visibility: visible;
+}
+
+/* --- 2. FORZAR TAMAÑO UNIFORME DE CARDS (Basado en tu V1) --- */
+/* El contenedor de la tarjeta nativa con border=True */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    min-height: 380px !important;
+    /* Altura fija para todas */
+    max-height: 380px !important;
+    background-color: white !important;
+    border-radius: 10px !important;
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2) !important;
+    transition: transform 0.2s ease-in-out !important;
+}
+
+[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    transform: scale(1.02) !important;
+}
+
+/* Control de la imagen para que sea igual a .card-img-top de tu V1 */
+[data-testid="stImage"] img {
+    height: 150px !important;
+    /* Altura fija de imagen */
+    width: 100% !important;
+    object-fit: contain !important;
+    background-color: white !important;
+    padding: 10px !important;
+}
+
+/* Ajuste del título */
+.stSubheader {
+    text-align: center !important;
+    min-height: 60px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}

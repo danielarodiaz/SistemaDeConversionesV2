@@ -1,0 +1,72 @@
+# ============================================================
+# .gitignore - SistemaDeConversiones_V2
+# ============================================================
+
+# ---- Variables de entorno (NUNCA subir) --------------------
+.env
+backend/.env
+frontend/.env
+*.env
+
+# ---- Python ----------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.pyo
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# ---- Entornos virtuales ----------------------------------------
+venv/
+env/
+.venv/
+ENV/
+
+# ---- Archivos temporales / de trabajo --------------------------
+uploads/
+backend/uploads/
+outputs/
+backend/outputs/
+
+# ---- Archivos generados por el sistema -------------------------
+*.log
+*.tmp
+*.bak
+*.swp
+Untitled
+
+# ---- IDEs / Editores -------------------------------------------
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ---- Windows ---------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---- macOS -----------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ---- Docker ----------------------------------------------------
+# (el docker-compose.yml SÍ se sube, pero sin contraseñas hardcodeadas)
+
+# ---- Datos sensibles / archivos de prueba ----------------------
+*.csv
+*.xlsx
+*.xls
+*.txt
+# Si querés trackear archivos de ejemplo, excluí las excepciones así:
+# !backend/scripts/ejemplos/*.xlsx

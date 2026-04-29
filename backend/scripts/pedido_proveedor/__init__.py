@@ -1,0 +1,13 @@
+# from .adida_processor import process_adidas_pedido_proveedor
+# from .bestsox_processor import process_bestsox_pedido_proveedor
+# from .braku_processor import process_braku_pedido_proveedor
+# from .diadora_processor import process_diadora_pedido_proveedor
+# from .distrinando_processor import process_distrinando_pedido_proveedor
+# from .gruppo7_processor import process_gruppo7_pedido_proveedor
+# from .johnfoos_processor import process_johnfoos_pedido_proveedor
+# from .kdy_processor import process_kdy_pedido_proveedor
+# from .kosiuko_processor import process_kosiuko_pedido_proveedor
+# from .leuru_processor import process_leuru_pedido_proveedor
+# from .puma_processor import process_puma_pedido_proveedor
+# from .saucony_processor import process_saucony_pedido_proveedor
+# from .topper_processor import process_topper_pedido_proveedor
