@@ -6,6 +6,12 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
+# Fuerza UTF-8 en la consola para evitar UnicodeEncodeError con emojis en Windows
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 # Carga variables de entorno
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 

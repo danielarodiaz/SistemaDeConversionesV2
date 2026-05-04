@@ -1,21 +1,21 @@
-from config import esta_en_render
+import os
 from backend.services.cegid_connector import conectar_cegid
 import pandas as pd
 from typing import Dict, List, Tuple
 
-# 🧠 Función que decide qué implementación usar (mock o real)
+# Si DISABLE_CEGID=true en el .env, todas las consultas retornan valores vacíos/mock
+# Útil para desarrollo sin acceso al servidor CEGID.
+def _cegid_deshabilitado() -> bool:
+    return os.getenv("DISABLE_CEGID", "false").lower() == "true"
+
 def obtener_codigo_barra(modelo, talle, color=None):
     """
-    Lógica de ruteo que elige entre la implementación mock o real según el entorno.
+    Dado un modelo y talle, devuelve el código de barras desde CEGID.
+    Si DISABLE_CEGID=true, retorna None sin intentar conexión.
     """
-    if esta_en_render():
-        return obtener_codigo_barra_por_talle_mock(modelo, color or "", talle)
-    else:
-        return obtener_codigo_barra_flexible(modelo, talle, incluir_color=bool(color), color=color)
-
-# 🧪 Mock para Render
-def obtener_codigo_barra_por_talle_mock(modelo, color, talle):
-    return f"MOCK-{modelo}-{color}-{talle}"
+    if _cegid_deshabilitado():
+        return None
+    return obtener_codigo_barra_flexible(modelo, talle, incluir_color=bool(color), color=color)
 
 def obtener_codigo_barra_flexible(codigo_articulo, talle, incluir_color=False, color=None):
     """
@@ -57,7 +57,7 @@ def obtener_codigo_barra_flexible(codigo_articulo, talle, incluir_color=False, c
 
 
 def obtener_precios_cegid_por_cod_prov(cod_prov):
-    if esta_en_render():
+    if _cegid_deshabilitado():
         return pd.DataFrame(columns=[
             'IDArticulo', 'CodigoArticulo', 'NombreArticulo', 'PrecioCompra', 'PrecioVenta'
         ])
@@ -116,10 +116,11 @@ def obtener_precio_venta_y_promo_por_codigo(codigo_articulo):
     Obtiene el precio de venta, el campo PROMO (GA_LIBREART6) y el campo MARCA (GA_LIBREART2) para un código de artículo específico.
     Esta función es específica para el procesador de mayoristas.
     """
-    if esta_en_render():
+    if _cegid_deshabilitado():
         return {
             'precio_venta': 0.0,
-            'promo': ''
+            'promo': '',
+            'marca': ''
         }
     
     try:
@@ -182,7 +183,7 @@ def obtener_costos_por_codigos_barras(codigos_barras: List[str]) -> Dict[str, Tu
     if not valores:
         return {}
 
-    if esta_en_render():
+    if _cegid_deshabilitado():
         return {}
 
     try:

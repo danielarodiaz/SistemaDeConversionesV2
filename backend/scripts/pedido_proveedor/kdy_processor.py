@@ -14,10 +14,13 @@ _COLUMNAS_REPORTE = [
 def _codigo_articulo_desde_ean(ean_raw: str, descripcion: str) -> str:
     """
     Deriva el código de artículo desde el EAN de Kenya.
-    EAN: 'Y220102/106/0XL' → primeros 11 chars sin '/' = 'Y220102106'
-    Si la descripción contiene 'NIÑO' se añade 'N' al final.
+    Se eliminan las '/' del EAN y se toman exactamente los primeros 10
+    caracteres contando de izquierda a derecha (ej: 'Y220102/106/0XL'
+    → sin '/' = 'Y2201021060XL' → primeros 10 = 'Y220102106').
+    Si la descripción contiene 'NIÑO', se añade 'N' al final del código
+    de 10 dígitos (ej: 'Y220102106N').
     """
-    codigo = ean_raw.replace('/', '')[:11]
+    codigo = ean_raw.replace('/', '')[:10]
     if 'NIÑO' in descripcion.upper():
         codigo += 'N'
     return codigo
