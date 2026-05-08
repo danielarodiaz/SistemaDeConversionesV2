@@ -1,4 +1,7 @@
-from data.gastos_database import PROVEEDORES_DB, ARTICULOS_DB
+try:
+    from data.gastos_database import PROVEEDORES_DB, ARTICULOS_DB
+except ModuleNotFoundError:
+    from backend.data.gastos_database import PROVEEDORES_DB, ARTICULOS_DB
 from datetime import datetime, timedelta
 import re
 import pandas as pd

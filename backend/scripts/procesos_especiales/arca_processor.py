@@ -1,8 +1,8 @@
 import pandas as pd
 import os
 from openpyxl import Workbook
-from database import SessionLocal
-from models import Proveedor
+from backend.database import SessionLocal
+from backend.models import Proveedor
 
 def generar_num(punto_venta, numero):
     return f"{str(punto_venta).zfill(4)}-{str(numero).zfill(8)}"

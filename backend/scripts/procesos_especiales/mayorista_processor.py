@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import openpyxl
 from openpyxl import Workbook
-from utils.cegid_utils import obtener_precio_venta_y_promo_por_codigo
+from backend.utils.cegid_utils import obtener_precio_venta_y_promo_por_codigo
 
 def process_mayorista_procesos_especiales(input_path, output_path):
     """

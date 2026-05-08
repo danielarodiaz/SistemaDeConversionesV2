@@ -1,5 +1,8 @@
 import re
-from data.ocr_database import ocr_database
+try:
+    from data.ocr_database import ocr_database
+except ModuleNotFoundError:
+    from backend.data.ocr_database import ocr_database
 
 # 🔁 Mapeo de variantes a nombre base
 remitente_map = {

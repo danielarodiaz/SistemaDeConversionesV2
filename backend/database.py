@@ -2,7 +2,10 @@ import os
 import pyodbc
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from models import Base
+try:
+    from models import Base
+except ModuleNotFoundError:
+    from backend.models import Base
 from dotenv import load_dotenv
 
 # Carga el archivo .env ubicado en el mismo directorio

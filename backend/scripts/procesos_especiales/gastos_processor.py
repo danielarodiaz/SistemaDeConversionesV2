@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import zipfile
 import traceback
-from utils.gastos_utils import (
+from backend.utils.gastos_utils import (
     obtener_codprov_por_cuit_y_proveedor,
     convertir_fecha_formato,
     obtener_valores_por_comentario,

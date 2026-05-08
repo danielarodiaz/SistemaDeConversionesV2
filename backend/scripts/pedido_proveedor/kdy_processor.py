@@ -1,7 +1,7 @@
 import pandas as pd
 from backend.utils.pedido_helpers import (
     detectar_conflictos_suc, formatear_precio, resolver_establecimiento,
-    armar_item_auditoria, ejecutar_auditoria_y_exportar,
+    resolver_descuento, armar_item_auditoria, ejecutar_auditoria_y_exportar,
 )
 
 _COLUMNAS_REPORTE = [
@@ -61,7 +61,7 @@ def process_kdy_pedido_proveedor(input_path, output_path):
                 precio_float = round(float(row['PreUni']), 2)
                 establecimiento = resolver_establecimiento(row.get('Empresa', ''))
                 almacen = str(int(row['Suc'])).zfill(6)
-                descuento = row['Dto.Com']
+                descuento = resolver_descuento(row.get('Dto.Com'))
 
                 descripcion_raw = str(row.get('Descripcion', '')).strip()
                 codigo_articulo = _codigo_articulo_desde_ean(str(row['EAN']).strip(), descripcion_raw)

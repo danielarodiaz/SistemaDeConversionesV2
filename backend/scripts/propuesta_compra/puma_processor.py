@@ -3,7 +3,7 @@ import os
 import re
 import math
 from datetime import datetime
-from utils.cegid_utils import obtener_codigo_barra
+from backend.utils.cegid_utils import obtener_codigo_barra
 
 def detectar_tipo_producto(nombre_archivo):
     nombre = nombre_archivo.lower()

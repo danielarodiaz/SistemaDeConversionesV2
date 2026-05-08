@@ -1,2 +1,0 @@
-from .priceBike_processor import process_price_bike
-from .pricePuma_processor import process_puma_price

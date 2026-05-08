@@ -3,7 +3,7 @@ from typing import List, Dict, Tuple
 
 import pandas as pd
 
-from utils.cegid_utils import obtener_costos_por_codigos_barras
+from backend.utils.cegid_utils import obtener_costos_por_codigos_barras
 
 
 def _formatear_fecha_ddmmaa(fecha_str: str) -> str:

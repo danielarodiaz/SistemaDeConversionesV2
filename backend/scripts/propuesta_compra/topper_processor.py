@@ -3,7 +3,7 @@ import os
 import math
 import zipfile
 from datetime import datetime
-from utils.cegid_utils import obtener_precios_cegid_por_cod_prov, obtener_codigo_barra_flexible
+from backend.utils.cegid_utils import obtener_precios_cegid_por_cod_prov, obtener_codigo_barra_flexible
 
 MESES_ES = {
     1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL",

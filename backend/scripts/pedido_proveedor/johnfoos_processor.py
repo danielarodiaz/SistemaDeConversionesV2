@@ -2,7 +2,7 @@ import pandas as pd
 import re
 from backend.utils.pedido_helpers import (
     detectar_conflictos_suc, formatear_precio, resolver_establecimiento,
-    armar_item_auditoria, ejecutar_auditoria_y_exportar,
+    resolver_descuento, armar_item_auditoria, ejecutar_auditoria_y_exportar,
 )
 
 _COLUMNAS_REPORTE = [
@@ -43,7 +43,7 @@ def process_johnfoos_pedido_proveedor(input_path, output_path):
                 precio_float = round(float(row['PreUni']), 2)
                 establecimiento = resolver_establecimiento(row.get('Empresa', ''))
                 almacen = str(int(row['Suc'])).zfill(6)
-                dto_raw = row.get('Dto.Com', 0)
+                dto_raw = resolver_descuento(row.get('Dto.Com'))
 
                 # Artículo limpio: quitar '/' y '-' (ej. "950056/01" → "95005601")
                 codigo_articulo = re.sub(r'[/\-]', '', str(row.get('Articulo', '')).strip())

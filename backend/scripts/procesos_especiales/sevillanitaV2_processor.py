@@ -3,7 +3,7 @@ import os
 import re
 import zipfile
 import traceback
-from utils.ocr_utils import calcular_ocr_code
+from backend.utils.ocr_utils import calcular_ocr_code
 
 def extraer_info_del_nombre_archivo(file_path):
     """
