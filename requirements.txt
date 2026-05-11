@@ -1,0 +1,11 @@
+# ============================================================
+# DEPENDENCIAS FRONTEND - SistemaDeConversionesV2
+# Usado por Streamlit Cloud para el deploy del frontend.
+# El backend corre por separado en el servidor local.
+# ============================================================
+
+streamlit>=1.35.0
+requests>=2.31.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+python-dotenv>=1.0.0

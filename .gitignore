@@ -68,5 +68,6 @@ $RECYCLE.BIN/
 *.xlsx
 *.xls
 *.txt
+!requirements.txt
 # Si querés trackear archivos de ejemplo, excluí las excepciones así:
 # !backend/scripts/ejemplos/*.xlsx
