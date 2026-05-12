@@ -2,8 +2,9 @@ import pyodbc
 import os
 from dotenv import load_dotenv
 
-# Cargamos las variables del archivo .env
-load_dotenv()
+# Cargamos el .env desde la carpeta backend/ (donde vive este proyecto)
+# sin importar desde qué directorio se levante el servidor.
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 def conectar_cegid():
     """
