@@ -8,9 +8,17 @@ from dotenv import load_dotenv
 # Carga variables de entorno desde .env si existe
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-# BACKEND_URL: .env local > Streamlit Secrets > default localhost
+# BACKEND_URL: prioridad → .env local > Streamlit Secrets > default localhost
+# Orden de resolución:
+#   1. Variable de entorno / archivo .env  (dev local, servidor)
+#   2. st.secrets                          (Streamlit Cloud)
+#   3. http://localhost:5000               (fallback)
 _backend_from_env = os.getenv("BACKEND_URL")
-_backend_from_secrets = st.secrets.get("BACKEND_URL", None) if hasattr(st, 'secrets') else None
+try:
+    _backend_from_secrets = st.secrets.get("BACKEND_URL", None)
+except Exception:
+    # No hay secrets.toml (entorno local sin Streamlit Cloud)
+    _backend_from_secrets = None
 BACKEND_URL = (_backend_from_env or _backend_from_secrets or "http://localhost:5000").rstrip("/")
 
 # Header requerido por ngrok para que no bloquee requests automáticas
