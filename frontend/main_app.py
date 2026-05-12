@@ -8,7 +8,14 @@ from dotenv import load_dotenv
 # Carga variables de entorno desde .env si existe
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5000")
+# BACKEND_URL: .env local > Streamlit Secrets > default localhost
+_backend_from_env = os.getenv("BACKEND_URL")
+_backend_from_secrets = st.secrets.get("BACKEND_URL", None) if hasattr(st, 'secrets') else None
+BACKEND_URL = (_backend_from_env or _backend_from_secrets or "http://localhost:5000").rstrip("/")
+
+# Header requerido por ngrok para que no bloquee requests automáticas
+# (se ignora silenciosamente si el backend no usa ngrok)
+NGROK_HEADERS = {"ngrok-skip-browser-warning": "true"}
 
 # ── Configuración de página ───────────────────────────────────────────────────
 st.set_page_config(page_title="Sistema Conversor V2", layout="wide")
@@ -115,7 +122,7 @@ def _render_audit_results(data: dict) -> None:
             st.dataframe(df_conflictos, width="stretch")
 
     # Botón de descarga (común a todos)
-    download_res = requests.get(data["download_url"], stream=True)
+    download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
     if download_res.status_code == 200:
         filename = data["filename"]
         if filename.endswith(".zip"):
@@ -154,6 +161,7 @@ def _render_provider_card(id_p: str, info: dict) -> None:
                         res = requests.post(
                             f"{BACKEND_URL}/api/process/{id_p}",
                             files={"file": (file.name, file.getvalue())},
+                            headers=NGROK_HEADERS,
                         )
                         if res.status_code == 200:
                             _render_audit_results(res.json())
