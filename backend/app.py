@@ -12,6 +12,7 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 from backend.utils.pedido_helpers import generar_zip_con_variaciones
+from backend.database import DB_AUTH_TYPE, DB_HOST, DB_NAME, _HOSTNAME
 
 # Fuerza UTF-8 en la consola para evitar UnicodeEncodeError con emojis en Windows
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
@@ -65,6 +66,17 @@ except ModuleNotFoundError:
 
 app = Flask(__name__)
 CORS(app)
+
+@app.route('/api/status', methods=['GET'])
+def status():
+    """Endpoint de diagnóstico: muestra cómo está configurada la conexión a la DB."""
+    return jsonify({
+        "status": "online",
+        "hostname": _HOSTNAME,
+        "db_auth_type": DB_AUTH_TYPE,
+        "db_host": DB_HOST,
+        "db_name": DB_NAME,
+    }), 200
 
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
@@ -208,4 +220,5 @@ def download(filename):
 
 
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    # host='0.0.0.0' permite conexiones externas al servidor
+    app.run(host='0.0.0.0', port=5000)
