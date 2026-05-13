@@ -35,10 +35,15 @@ backend/outputs/
 
 # ---- Archivos generados por el sistema -------------------------
 *.log
+*.log.old
 *.tmp
 *.bak
 *.swp
 Untitled
+
+# ---- Ejecutables y comprimidos ---------------------------------
+*.exe
+*.zip
 
 # ---- IDEs / Editores -------------------------------------------
 .vscode/

@@ -1,0 +1,11 @@
+<service>
+  <id>Conversor_Backend</id>
+  <name>Conversor Backend (Flask)</name>
+  <description>Sistema de Conversiones V2 Backend Service</description>
+  <executable>%BASE%\..\venv\Scripts\python.exe</executable>
+  <arguments>backend/app.py</arguments>
+  <env name="PYTHONUTF8" value="1" />
+  <logmode>roll</logmode>
+  <workingdirectory>%BASE%\..</workingdirectory>
+  <onfailure action="restart" delay="10 sec"/>
+</service>
