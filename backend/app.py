@@ -32,6 +32,7 @@ from backend.scripts.pedido_proveedor.johnfoos_processor  import process_johnfoo
 from backend.scripts.pedido_proveedor.kdy_processor       import process_kdy_pedido_proveedor
 from backend.scripts.pedido_proveedor.kosiuko_processor   import process_kosiuko_pedido_proveedor
 from backend.scripts.pedido_proveedor.leuru_processor     import process_leuru_pedido_proveedor
+from backend.scripts.pedido_proveedor.procer_procesador   import process_procer_pedido_proveedor
 from backend.scripts.pedido_proveedor.puma_processor      import process_puma_pedido_proveedor
 from backend.scripts.pedido_proveedor.saucony_processor   import process_saucony_pedido_proveedor
 from backend.scripts.pedido_proveedor.topper_processor    import process_topper_pedido_proveedor
@@ -97,6 +98,7 @@ PROCESSOR_MAP = {
     "kdy":              {"func": process_kdy_pedido_proveedor,      "ext": ".csv"},
     "kosiuko":          {"func": process_kosiuko_pedido_proveedor,  "ext": ".csv"},
     "leuru":            {"func": process_leuru_pedido_proveedor,    "ext": ".csv"},
+    "procer":           {"func": process_procer_pedido_proveedor,   "ext": ".csv"},
     "puma":             {"func": process_puma_pedido_proveedor,     "ext": ".csv"},
     "saucony":          {"func": process_saucony_pedido_proveedor,  "ext": ".csv"},
     "topper":           {"func": process_topper_pedido_proveedor,   "ext": ".csv"},
@@ -123,6 +125,7 @@ EXPECTED_INPUT_EXT = {
     "kdy":              ".xlsx",
     "kosiuko":          ".txt",
     "leuru":            ".txt",
+    "procer":           ".xlsx",
     "puma":             ".csv",
     "saucony":          ".xlsx",
     "topper":           ".txt",

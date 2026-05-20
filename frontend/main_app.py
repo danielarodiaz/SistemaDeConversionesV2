@@ -57,6 +57,7 @@ PROVIDERS = {
     "kdy":              {"name": "Kdy",         "logo": "logo_kdy.png",         "cat": "Pedido Proveedor",   "ext": ".xlsx"},
     "kosiuko":          {"name": "Kosiuko",     "logo": "logo_kosiuko.png",     "cat": "Pedido Proveedor",   "ext": ".txt"},
     "leuru":            {"name": "Leuru",       "logo": "logo_leuru.png",       "cat": "Pedido Proveedor",   "ext": ".txt"},
+    "procer":           {"name": "Procer",      "logo": "logo_procer.png",      "cat": "Pedido Proveedor",   "ext": ".xlsx"},
     "puma":             {"name": "Puma",        "logo": "logo_puma.png",        "cat": "Pedido Proveedor",   "ext": ".csv"},
     "saucony":          {"name": "Saucony",     "logo": "logo_saucony.png",     "cat": "Pedido Proveedor",   "ext": ".xlsx"},
     "topper":           {"name": "Topper",      "logo": "logo_topper.png",      "cat": "Pedido Proveedor",   "ext": ".txt"},
@@ -112,9 +113,18 @@ def _render_audit_results(data: dict) -> None:
             st.warning(f"📊 Se detectaron {len(audit['cambios_precio'])} variaciones de precio.")
             with st.expander("🔍 Revisar Resumen de Precios por Modelo"):
                 df_precios = pd.DataFrame(audit['cambios_precio']).copy()
-                df_precios['precio_cegid'] = df_precios['precio_cegid'].map("${:,.2f}".format)
-                df_precios['precio_prov'] = df_precios['precio_prov'].map("${:,.2f}".format)
-                df_precios['variacion_porcentaje'] = df_precios['variacion_porcentaje'].map("{:.2f}%".format)
+                columnas = [
+                    "articulo_cegid",
+                    "descripcion",
+                    "precio_cegid",
+                    "precio_prov",
+                    "variacion_porcentaje",
+                ]
+                df_precios = df_precios[[c for c in columnas if c in df_precios.columns]]
+                df_precios = df_precios.rename(columns={"articulo_cegid": "Articulo_cegid"})
+                df_precios["precio_cegid"] = df_precios["precio_cegid"].map("${:,.2f}".format)
+                df_precios["precio_prov"] = df_precios["precio_prov"].map("${:,.2f}".format)
+                df_precios["variacion_porcentaje"] = df_precios["variacion_porcentaje"].map("{:.2f}%".format)
                 st.dataframe(df_precios, width="stretch")
         else:
             st.success("No hay variaciones de precio respecto a CEGID.")

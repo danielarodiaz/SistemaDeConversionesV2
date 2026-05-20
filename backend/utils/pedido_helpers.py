@@ -53,7 +53,9 @@ def resolver_establecimiento(empresa_str) -> str:
     Acepta variantes como 'MARATHON S.R.L.' o 'Marathon SRL'.
     """
     normalizado = str(empresa_str).replace('.', '').strip().upper()
-    return '002' if normalizado == 'MARATHON SRL' else '001'
+    if normalizado == 'MARATHON SRL' or normalizado == 'MARATHON':
+        return '002'
+    return '001'
 
 
 def resolver_descuento(valor, default: float = 0) -> float:
@@ -95,6 +97,7 @@ def ejecutar_auditoria_y_exportar(
     conflictos_suc: list = None,
     sort_by: str = 'REFERENCIA INTERNA',
     encoding: str = 'utf-8-sig',
+    usar_codigo_cegid_por_barras: bool = False,
 ) -> dict:
     """
     1. Ejecuta la auditoría completa con CegidValidator.
@@ -103,7 +106,10 @@ def ejecutar_auditoria_y_exportar(
     Retorna el informe de auditoría.
     """
     print(f"📦 Items {proveedor} listos para auditar: {len(items_auditoria)}")
-    informe = CegidValidator.auditar_items(items_auditoria)
+    informe = CegidValidator.auditar_items(
+        items_auditoria,
+        usar_codigo_cegid_por_barras=usar_codigo_cegid_por_barras,
+    )
     informe['conflictos_suc'] = conflictos_suc or []
 
     df_out = pd.DataFrame(registros_cegid)

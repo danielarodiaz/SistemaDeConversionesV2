@@ -86,6 +86,7 @@ def process_johnfoos_pedido_proveedor(input_path, output_path):
             items_auditoria, registros_cegid, output_path,
             proveedor='John Foos', conflictos_suc=conflictos_suc,
             sort_by=None,
+            usar_codigo_cegid_por_barras=True,
         )
 
     except Exception as e:
