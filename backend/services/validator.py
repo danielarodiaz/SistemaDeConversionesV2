@@ -3,7 +3,7 @@ from backend.utils.cegid_utils import obtener_costos_por_codigos_barras, obtener
 
 class CegidValidator:
     @staticmethod
-    def auditar_items(lista_articulos, usar_codigo_cegid_por_barras: bool = False):
+    def auditar_items(lista_articulos):
         resultados = {
             "existentes": [],      
             "faltantes": [],       
@@ -37,15 +37,13 @@ class CegidValidator:
             
             if info_cegid:
                 codigo_cegid, precio_cegid, desc_cegid = info_cegid
-                clave_existente = codigo_cegid if usar_codigo_cegid_por_barras else cod_art
-                articulos_existentes.add(clave_existente)
-                # --- PUNTO 5: Agrupar cambios de precio por Artículo ---
+                articulos_existentes.add(cod_art)
+                # --- PUNTO 5: Agrupar cambios de precio por código CEGID (resuelto por EAN) ---
                 if round(float(precio_cegid), 2) != precio_prov:
-                    articulo_pc = codigo_cegid if usar_codigo_cegid_por_barras else cod_art
-                    if articulo_pc not in cambios_unicos:
+                    if codigo_cegid not in cambios_unicos:
                         variacion = ((precio_prov - precio_cegid) / precio_cegid * 100) if precio_cegid > 0 else 100
-                        cambios_unicos[articulo_pc] = {
-                            "articulo_cegid": articulo_pc,
+                        cambios_unicos[codigo_cegid] = {
+                            "articulo_cegid": codigo_cegid,
                             "descripcion": desc_cegid,
                             "precio_cegid": round(float(precio_cegid), 2),
                             "precio_prov": precio_prov,

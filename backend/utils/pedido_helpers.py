@@ -97,7 +97,6 @@ def ejecutar_auditoria_y_exportar(
     conflictos_suc: list = None,
     sort_by: str = 'REFERENCIA INTERNA',
     encoding: str = 'utf-8-sig',
-    usar_codigo_cegid_por_barras: bool = False,
 ) -> dict:
     """
     1. Ejecuta la auditoría completa con CegidValidator.
@@ -106,10 +105,7 @@ def ejecutar_auditoria_y_exportar(
     Retorna el informe de auditoría.
     """
     print(f"📦 Items {proveedor} listos para auditar: {len(items_auditoria)}")
-    informe = CegidValidator.auditar_items(
-        items_auditoria,
-        usar_codigo_cegid_por_barras=usar_codigo_cegid_por_barras,
-    )
+    informe = CegidValidator.auditar_items(items_auditoria)
     informe['conflictos_suc'] = conflictos_suc or []
 
     df_out = pd.DataFrame(registros_cegid)

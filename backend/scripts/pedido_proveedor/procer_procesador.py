@@ -241,7 +241,6 @@ def process_procer_pedido_proveedor(input_path, output_path):
             proveedor="PROCER",
             conflictos_suc=conflictos_suc,
             sort_by=None,
-            usar_codigo_cegid_por_barras=True,
         )
 
     except Exception as e:
