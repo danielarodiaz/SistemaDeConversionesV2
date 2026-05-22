@@ -1,0 +1,16 @@
+# Backend - Flask API
+flask>=3.0.0
+flask-cors>=4.0.0
+python-dotenv>=1.0.0
+
+# Base de datos
+sqlalchemy>=2.0.0
+pyodbc>=5.0.0
+
+# Procesamiento de archivos
+pandas>=2.0.0
+openpyxl>=3.1.0
+xlrd>=2.0.1
+
+# Utilidades
+werkzeug>=3.0.0

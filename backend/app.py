@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 from backend.utils.pedido_helpers import generar_zip_con_variaciones
 from backend.database import DB_AUTH_TYPE, DB_HOST, DB_NAME, _HOSTNAME
+from backend.services.auditoria_service import AuditoriaService
 
 # Fuerza UTF-8 en la consola para evitar UnicodeEncodeError con emojis en Windows
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
@@ -67,6 +68,7 @@ except ModuleNotFoundError:
 
 app = Flask(__name__)
 CORS(app)
+auditoria_service = AuditoriaService()
 
 @app.route('/api/status', methods=['GET'])
 def status():
@@ -78,6 +80,101 @@ def status():
         "db_host": DB_HOST,
         "db_name": DB_NAME,
     }), 200
+
+
+@app.route('/api/auditoria/resumen', methods=['GET'])
+def auditoria_resumen():
+    try:
+        return jsonify(auditoria_service.resumen()), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/auditoria/documentos', methods=['GET'])
+def auditoria_documentos():
+    try:
+        proveedor = request.args.get('proveedor') or None
+        estado = request.args.get('estado') or None
+        marca = request.args.get('marca') or None
+        mes = request.args.get('mes') or None
+        souche = request.args.get('souche') or None
+        limit = int(request.args.get('limit', 200))
+        data = auditoria_service.explorador(
+            proveedor=proveedor,
+            estado=estado,
+            marca=marca,
+            mes=mes,
+            souche=souche,
+            limit=limit,
+        )
+        return jsonify({"items": data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/auditoria/documentos/<int:documento_id>', methods=['GET'])
+def auditoria_detalle_documento(documento_id):
+    try:
+        data = auditoria_service.detalle_documento(documento_id)
+        if data is None:
+            return jsonify({"error": "Documento no encontrado"}), 404
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/auditoria/plan-vs-recepcion', methods=['GET'])
+def auditoria_plan_vs_recepcion():
+    try:
+        proveedor = request.args.get('proveedor') or None
+        marca = request.args.get('marca') or None
+        mes = request.args.get('mes') or None
+        souche = request.args.get('souche') or None
+        limit = int(request.args.get('limit', 500))
+        data = auditoria_service.plan_vs_recepcion(
+            proveedor=proveedor,
+            marca=marca,
+            mes=mes,
+            souche=souche,
+            limit=limit,
+        )
+        return jsonify({"items": data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/auditoria/documentos', methods=['POST'])
+def auditoria_registrar_documento():
+    """
+    Endpoint interno para registrar documentos normalizados.
+    La ingesta real desde CEGID se conectara cuando definamos PIECE/LIGNE.
+    """
+    try:
+        payload = request.get_json(force=True)
+        result = auditoria_service.registrar_documento(
+            proveedor_data=payload.get("proveedor", {}),
+            documento_data=payload.get("documento", {}),
+            lineas=payload.get("lineas", []),
+        )
+        return jsonify({"status": "success", **result}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/auditoria/sync/cegid', methods=['POST'])
+def auditoria_sync_cegid():
+    try:
+        payload = request.get_json(silent=True) or {}
+        result = auditoria_service.sincronizar_circuito_cegid(
+            desde=payload.get("desde"),
+            hasta=payload.get("hasta"),
+            tipos=payload.get("tipos") or ["CF", "ALF", "BLF"],
+            souche=payload.get("souche") or None,
+            incluir_def=bool(payload.get("incluir_def", False)),
+        )
+        return jsonify({"status": "success", **result}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
@@ -98,7 +195,7 @@ PROCESSOR_MAP = {
     "kdy":              {"func": process_kdy_pedido_proveedor,      "ext": ".csv"},
     "kosiuko":          {"func": process_kosiuko_pedido_proveedor,  "ext": ".csv"},
     "leuru":            {"func": process_leuru_pedido_proveedor,    "ext": ".csv"},
-    "procer":           {"func": process_procer_pedido_proveedor,   "ext": ".csv"},
+    "procer":           {"func": process_procer_pedido_proveedor,    "ext": ".csv"},
     "puma":             {"func": process_puma_pedido_proveedor,     "ext": ".csv"},
     "saucony":          {"func": process_saucony_pedido_proveedor,  "ext": ".csv"},
     "topper":           {"func": process_topper_pedido_proveedor,   "ext": ".csv"},

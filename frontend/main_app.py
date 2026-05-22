@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import os
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 # Carga variables de entorno desde .env si existe
@@ -80,9 +80,186 @@ with st.sidebar:
         st.image(get_img("logo_marathon_M.png"), width=80)
     st.markdown("<h2 style='text-align: center;'>Panel de Control</h2>", unsafe_allow_html=True)
     st.divider()
-    menu = st.radio("Secciones", ["Pedido Proveedor", "Propuesta de Compra", "Procesos Especiales"])
+    menu = st.radio("Secciones", ["Pedido Proveedor", "Propuesta de Compra", "Procesos Especiales", "Auditoria Logistica"])
 
 st.title(f"📂 {menu}")
+
+
+def _api_get(path: str, params=None) -> dict:
+    res = requests.get(f"{BACKEND_URL}{path}", params=params, headers=NGROK_HEADERS, timeout=20)
+    res.raise_for_status()
+    return res.json()
+
+
+def _api_post(path: str, payload=None) -> dict:
+    res = requests.post(f"{BACKEND_URL}{path}", json=payload or {}, headers=NGROK_HEADERS, timeout=300)
+    res.raise_for_status()
+    return res.json()
+
+
+def _render_auditoria_logistica() -> None:
+    st.subheader("Panel de Control de Auditoria")
+
+    default_hasta = datetime.now().date() + timedelta(days=1)
+    default_desde = default_hasta - timedelta(days=7)
+
+    if st.button("Limpiar filtros"):
+        st.session_state["aud_empresa"] = ""
+        st.session_state["aud_desde"] = default_desde
+        st.session_state["aud_hasta"] = default_hasta
+        st.session_state["aud_proveedor"] = ""
+        st.session_state["aud_marca"] = ""
+        st.session_state["aud_estado"] = ""
+        st.session_state["aud_mes"] = ""
+        st.session_state["aud_documento_id"] = 0
+        st.session_state["aud_incluir_def"] = True
+        st.session_state["aud_show_results"] = False
+
+    sync_col, empresa_col, desde_col, hasta_col, def_col = st.columns([1, 1, 1, 1, 1])
+    empresa = empresa_col.selectbox(
+        "Empresa",
+        ["", "002", "001"],
+        format_func=lambda value: {
+            "": "Ambas",
+            "002": "Marathon",
+            "001": "Blanco",
+        }.get(value, value),
+        key="aud_empresa",
+    )
+    desde = desde_col.date_input("Desde", value=default_desde, key="aud_desde")
+    hasta = hasta_col.date_input("Hasta", value=default_hasta, key="aud_hasta")
+    incluir_def = def_col.checkbox("Incluir DEF", value=True, key="aud_incluir_def")
+    with sync_col:
+        if st.button("Sincronizar CEGID", type="primary", width="stretch"):
+            with st.spinner("Consultando PIECE/LIGNE..."):
+                try:
+                    result = _api_post(
+                        "/api/auditoria/sync/cegid",
+                        {
+                            "tipos": ["CF", "ALF", "BLF"],
+                            "desde": desde.isoformat(),
+                            "hasta": hasta.isoformat(),
+                            "souche": empresa or None,
+                            "incluir_def": incluir_def,
+                        },
+                    )
+                    st.success(f"Sincronizados: {result.get('documentos', 0)} documentos y {result.get('lineas', 0)} lineas.")
+                    st.session_state["aud_show_results"] = False
+                except Exception as e:
+                    st.error(f"No se pudo sincronizar CEGID: {e}")
+
+    st.divider()
+    f1, f2, f3, f4, f5 = st.columns([1, 1, 1, 1, 1])
+    proveedor = f1.text_input("Proveedor", placeholder="Ej: ADIDA", key="aud_proveedor").strip() or None
+    marca = f2.text_input("Marca", placeholder="Ej: ADIDAS", key="aud_marca").strip() or None
+    estado = f3.selectbox(
+        "Estado",
+        ["", "OK", "PENDIENTE", "PROPUESTA_NO_CARGADA", "PENDIENTE_RECEPCION", "NOTIFICACION_PARCIAL", "SOBRE_ENTREGA"],
+        format_func=lambda value: "Todos" if value == "" else value,
+        key="aud_estado",
+    ) or None
+    mes = f4.text_input("Mes entrega", value="", placeholder="YYYY-MM", key="aud_mes").strip() or None
+    if f5.button("Aplicar filtros", width="stretch"):
+        st.session_state["aud_show_results"] = True
+
+    if not st.session_state.get("aud_show_results", False):
+        st.info("Sincroniza CEGID o aplica filtros para ver resultados.")
+        return
+
+    try:
+        data = _api_get(
+            "/api/auditoria/documentos",
+            params={
+                "proveedor": proveedor,
+                "estado": estado,
+                "marca": marca,
+                "mes": mes,
+                "souche": empresa or None,
+            },
+        )
+        items = data.get("items", [])
+    except Exception as e:
+        st.error(f"No se pudo consultar auditoria: {e}")
+        return
+
+    if not items:
+        st.warning("Todavia no hay documentos conciliados para mostrar.")
+        return
+
+    df = pd.DataFrame(items)
+    total_pedido = df.get("cantidad_pedida", pd.Series(dtype=float)).sum()
+    total_facturado = df.get("cantidad_facturada", pd.Series(dtype=float)).sum()
+    total_notificado = df.get("cantidad_notificada", pd.Series(dtype=float)).sum()
+    total_recibido = df.get("cantidad_recibida", pd.Series(dtype=float)).sum()
+    circuitos_ok = int((df.get("estado", pd.Series(dtype=str)) == "OK").sum())
+    otif = round(circuitos_ok / len(df) * 100, 2) if len(df) else 0
+    base_pendiente = total_pedido if total_pedido else total_facturado
+    unidades_pendientes = max(base_pendiente - total_recibido, 0)
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("OTIF filtrado", f"{otif}%")
+    k2.metric("Documentos", len(df))
+    k3.metric("Facturado CF", f"{total_facturado:,.0f}")
+    k4.metric("Recibido BLF", f"{total_recibido:,.0f}")
+
+    k5, k6, k7, _ = st.columns(4)
+    k5.metric("Pedido DEF", f"{total_pedido:,.0f}")
+    k6.metric("Notificado ALF", f"{total_notificado:,.0f}")
+    k7.metric("Unidades pendientes", f"{unidades_pendientes:,.0f}")
+
+    columnas = [
+        "documento_id",
+        "codigo_documento",
+        "proveedor",
+        "cegid_souche",
+        "marca",
+        "articulos",
+        "cantidad_pedida",
+        "cantidad_facturada",
+        "cantidad_notificada",
+        "cantidad_recibida",
+        "cumplimiento",
+        "estado",
+    ]
+    columnas = [col for col in columnas if col in df.columns]
+    st.dataframe(df[columnas], width="stretch", hide_index=True)
+
+    documento_id = st.number_input("Documento para detalle", min_value=0, step=1, key="aud_documento_id")
+
+    if documento_id:
+        try:
+            detalle = _api_get(f"/api/auditoria/documentos/{int(documento_id)}")
+        except Exception as e:
+            st.error(f"No se pudo abrir el detalle: {e}")
+            return
+
+        st.subheader(f"Detalle {detalle['documento']['codigo_documento']}")
+        detalle_df = pd.DataFrame(detalle.get("lineas", []))
+        if detalle_df.empty:
+            st.info("El documento no tiene lineas relacionadas.")
+        else:
+            st.dataframe(detalle_df, width="stretch", hide_index=True)
+
+    st.subheader("Comparativo DEF vs BLF")
+    try:
+        plan_data = _api_get(
+            "/api/auditoria/plan-vs-recepcion",
+            params={
+                "proveedor": proveedor,
+                "marca": marca,
+                "mes": mes,
+                "souche": empresa or None,
+            },
+        )
+        plan_items = plan_data.get("items", [])
+    except Exception as e:
+        st.error(f"No se pudo consultar DEF vs BLF: {e}")
+        return
+
+    if not plan_items:
+        st.info("No hay datos DEF/BLF para comparar con los filtros actuales.")
+    else:
+        plan_df = pd.DataFrame(plan_items)
+        st.dataframe(plan_df, width="stretch", hide_index=True)
 
 # ── Función reutilizable para mostrar resultados de auditoría ─────────────────
 def _render_audit_results(data: dict) -> None:
@@ -189,13 +366,16 @@ def _render_provider_card(id_p: str, info: dict) -> None:
                         st.error(f"Error de conexión: {e}")
 
 
-# ── Grid de proveedores ───────────────────────────────────────────────────────
-items = {k: v for k, v in PROVIDERS.items() if v["cat"] == menu}
-cols = st.columns(3)
+if menu == "Auditoria Logistica":
+    _render_auditoria_logistica()
+else:
+    # ── Grid de proveedores ───────────────────────────────────────────────────────
+    items = {k: v for k, v in PROVIDERS.items() if v["cat"] == menu}
+    cols = st.columns(3)
 
-for idx, (id_p, info) in enumerate(items.items()):
-    with cols[idx % 3]:
-        _render_provider_card(id_p, info)
+    for idx, (id_p, info) in enumerate(items.items()):
+        with cols[idx % 3]:
+            _render_provider_card(id_p, info)
 
 st.divider()
 st.caption(f"Creado por Daniela Diaz © {datetime.now().year}")
