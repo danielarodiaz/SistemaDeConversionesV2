@@ -262,6 +262,30 @@ def _render_auditoria_logistica() -> None:
         plan_df = pd.DataFrame(plan_items)
         st.dataframe(plan_df, width="stretch", hide_index=True)
 
+    st.subheader("Recepciones posteriores de articulos DEF")
+    if not mes:
+        st.info("Indicá un mes de entrega para buscar recepciones posteriores de los artículos propuestos.")
+    else:
+        try:
+            posteriores_data = _api_get(
+                "/api/auditoria/def/recepciones-posteriores",
+                params={
+                    "proveedor": proveedor,
+                    "marca": marca,
+                    "mes": mes,
+                    "souche": empresa or None,
+                },
+            )
+            posteriores = posteriores_data.get("items", [])
+        except Exception as e:
+            st.error(f"No se pudo consultar recepciones posteriores: {e}")
+            return
+
+        if not posteriores:
+            st.info("No se encontraron recepciones posteriores para los artículos DEF filtrados.")
+        else:
+            st.dataframe(pd.DataFrame(posteriores), width="stretch", hide_index=True)
+
 # ── Función reutilizable para mostrar resultados de auditoría ─────────────────
 def _render_audit_results(data: dict) -> None:
     """Muestra los resultados de auditoría y el botón de descarga."""

@@ -144,6 +144,24 @@ def auditoria_plan_vs_recepcion():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/auditoria/def/recepciones-posteriores', methods=['GET'])
+def auditoria_recepciones_posteriores_def():
+    try:
+        proveedor = request.args.get('proveedor') or None
+        marca = request.args.get('marca') or None
+        mes = request.args.get('mes') or None
+        souche = request.args.get('souche') or None
+        data = auditoria_service.recepciones_posteriores_def(
+            proveedor=proveedor,
+            marca=marca,
+            mes=mes,
+            souche=souche,
+        )
+        return jsonify({"items": data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/auditoria/documentos', methods=['POST'])
 def auditoria_registrar_documento():
     """

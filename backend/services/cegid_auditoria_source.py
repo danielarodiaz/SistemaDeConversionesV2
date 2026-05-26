@@ -238,6 +238,82 @@ class CegidAuditoriaSource:
             rows.extend(self._fetch_dicts(query, params))
         return rows
 
+    def obtener_recepciones_articulos(self, codigos_articulo, desde=None, hasta=None):
+        codigos = [self._clean_value(codigo) for codigo in codigos_articulo]
+        codigos = [codigo for codigo in dict.fromkeys(codigos) if codigo]
+        if not codigos:
+            return []
+
+        rows = []
+        for chunk in self._chunks(codigos, 200):
+            placeholders = ",".join(["?"] * len(chunk))
+            params = list(chunk)
+            filtros = ""
+            if desde:
+                filtros += " AND l.GL_DATEPIECE >= ?"
+                params.append(desde)
+            if hasta:
+                filtros += " AND l.GL_DATEPIECE < ?"
+                params.append(hasta)
+
+            query = f"""
+                SELECT
+                    l.GL_DATEPIECE,
+                    l.GL_NATUREPIECEG,
+                    l.GL_NUMERO,
+                    l.GL_SOUCHE,
+                    l.GL_INDICEG,
+                    l.GL_NUMLIGNE,
+                    l.GL_TIERS,
+                    l.GL_DEPOT,
+                    l.GL_ARTICLE,
+                    l.GL_LIBELLE,
+                    l.GL_CODEARTICLE,
+                    l.GL_REFARTBARRE,
+                    l.GL_QTESTOCK,
+                    l.GL_LIBREART2,
+                    l.GL_LIBREART3,
+                    NULL AS TALLE_CEGID
+                FROM LIGNE l
+                WHERE LTRIM(RTRIM(CAST(l.GL_NATUREPIECEG AS VARCHAR(20)))) = 'BLF'
+                  AND LTRIM(RTRIM(CAST(l.GL_TYPELIGNE AS VARCHAR(20)))) = 'ART'
+                  AND LTRIM(RTRIM(CAST(l.GL_CODEARTICLE AS VARCHAR(100)))) IN ({placeholders})
+                {filtros}
+            """
+            rows.extend(self._fetch_dicts(query, params))
+        return rows
+
+    def obtener_talles_por_eans(self, eans):
+        valores = [self._clean_value(ean) for ean in eans]
+        valores = [ean for ean in dict.fromkeys(valores) if ean]
+        if not valores:
+            return {}
+
+        talles = {}
+        for chunk in self._chunks(valores, 600):
+            placeholders = ",".join(["?"] * len(chunk))
+            query = f"""
+                SELECT
+                    a.GA_CODEBARRE,
+                    d.GDI_DIMORLI
+                FROM ARTICLE a
+                INNER JOIN DIMENSION d ON a.GA_CODEDIM1 = d.GDI_CODEDIM
+                    AND a.GA_GRILLEDIM1 = d.GDI_GRILLEDIM
+                WHERE a.GA_CODEBARRE IN ({placeholders})
+            """
+            for row in self._fetch_dicts(query, chunk):
+                ean = self._clean_value(row.get("GA_CODEBARRE"))
+                talle = self._clean_value(row.get("GDI_DIMORLI"))
+                if ean and talle:
+                    talles[ean] = talle
+        return talles
+
+    def aplicar_talles_por_ean(self, rows_ligne):
+        talles = self.obtener_talles_por_eans(row.get("GL_REFARTBARRE") for row in rows_ligne)
+        for row in rows_ligne:
+            row["TALLE_CEGID"] = talles.get(self._clean_value(row.get("GL_REFARTBARRE")))
+        return rows_ligne
+
     def normalizar_piece(self, row):
         naturaleza = str(row.get("GP_NATUREPIECEG", "")).strip()
         souche = str(row.get("GP_SOUCHE", "")).strip()
@@ -276,7 +352,7 @@ class CegidAuditoriaSource:
             "ean": self._clean_value(row.get("GL_REFARTBARRE")),
             "codigo_articulo": self._clean_value(row.get("GL_CODEARTICLE") or row.get("GL_REFARTSAISIE")),
             "descripcion": self._clean_value(row.get("GL_LIBELLE")),
-            "talle": self._clean_value(row.get("TALLE_CEGID")) or self._extraer_talle_tecnico(row.get("GL_ARTICLE")),
+            "talle": self._clean_value(row.get("TALLE_CEGID")),
             "deposito": self._clean_value(row.get("GL_DEPOT")),
             "marca": self._clean_value(row.get("GL_LIBREART2")),
             "genero": self._clean_value(row.get("GL_LIBREART3")),
@@ -357,10 +433,3 @@ class CegidAuditoriaSource:
         if not raw or raw.lower() == "nan":
             return None
         return raw
-
-    def _extraer_talle_tecnico(self, articulo):
-        raw = self._clean_value(articulo)
-        if not raw:
-            return None
-        parts = raw.split()
-        return parts[1] if len(parts) > 1 else None

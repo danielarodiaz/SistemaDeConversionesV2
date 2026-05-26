@@ -1,9 +1,13 @@
 try:
+    from datetime import datetime, timedelta
+
     from backend.services.auditoria_repository import AuditoriaRepository
     from backend.services.cegid_auditoria_source import CegidAuditoriaSource
     from backend.services.reconciliation_service import ReconciliationService
     from backend.services.unit_of_work import UnitOfWork
 except ModuleNotFoundError:
+    from datetime import datetime, timedelta
+
     from services.auditoria_repository import AuditoriaRepository
     from services.cegid_auditoria_source import CegidAuditoriaSource
     from services.reconciliation_service import ReconciliationService
@@ -44,6 +48,53 @@ class AuditoriaService:
                 limit=limit,
             )
 
+    def recepciones_posteriores_def(self, proveedor=None, marca=None, mes=None, souche=None):
+        with self.uow_factory() as uow:
+            propuestas = ReconciliationService(uow.session).lineas_def(
+                proveedor=proveedor,
+                marca=marca,
+                mes=mes,
+                souche=souche,
+            )
+
+        codigos = [item["codigo_articulo"] for item in propuestas if item.get("codigo_articulo")]
+        desde = f"{mes}-01" if mes else None
+        hasta = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        rows = self.cegid_source.obtener_recepciones_articulos(codigos, desde=desde, hasta=hasta)
+        rows = self.cegid_source.aplicar_talles_por_ean(rows)
+
+        pedidos_por_articulo = {}
+        for item in propuestas:
+            codigo = item.get("codigo_articulo")
+            if not codigo:
+                continue
+            pedidos_por_articulo.setdefault(codigo, 0)
+            pedidos_por_articulo[codigo] += item.get("cantidad_pedida", 0)
+
+        recepciones = {}
+        for row in rows:
+            codigo = str(row.get("GL_CODEARTICLE", "")).strip()
+            normalizada = self.cegid_source.normalizar_ligne(row)
+            key = (codigo, normalizada.get("ean"), row.get("GL_SOUCHE"), str(row.get("GL_DATEPIECE"))[:10])
+            item = recepciones.setdefault(key, {
+                "codigo_articulo": codigo,
+                "ean": normalizada.get("ean"),
+                "descripcion": normalizada.get("descripcion"),
+                "marca": normalizada.get("marca"),
+                "genero": normalizada.get("genero"),
+                "talle": normalizada.get("talle"),
+                "souche": row.get("GL_SOUCHE"),
+                "fecha_recepcion": str(row.get("GL_DATEPIECE"))[:10],
+                "cantidad_pedida_def": pedidos_por_articulo.get(codigo, 0),
+                "cantidad_recibida_blf": 0,
+            })
+            item["cantidad_recibida_blf"] += float(normalizada.get("cantidad") or 0)
+
+        return sorted(
+            recepciones.values(),
+            key=lambda item: (item["codigo_articulo"], item["fecha_recepcion"], item["souche"]),
+        )
+
     def registrar_documento(self, proveedor_data, documento_data, lineas):
         with self.uow_factory() as uow:
             repo = AuditoriaRepository(uow.session)
@@ -53,34 +104,25 @@ class AuditoriaService:
             return {"id": documento.id, "codigo_documento": documento.codigo_documento}
 
     def sincronizar_circuito_cegid(self, desde=None, hasta=None, tipos=None, souche=None, incluir_def=False):
-        rows_cf = self.cegid_source.obtener_documentos(
-            ["CF"],
+        hasta_exclusive = self._hasta_exclusive(hasta)
+        tipos_sync = ["CF", "ALF", "BLF"]
+        if incluir_def:
+            tipos_sync.insert(0, "DEF")
+
+        rows_piece = self.cegid_source.obtener_documentos(
+            tipos_sync,
             desde=desde,
-            hasta=hasta,
+            hasta=hasta_exclusive,
             souche=souche,
         )
-
-        cf_docs = [self.cegid_source.normalizar_piece(row) for row in rows_cf]
-        alf_keys = [doc.get("ref_siguiente") for doc in cf_docs if doc.get("ref_siguiente")]
-        rows_alf = self.cegid_source.obtener_documentos_por_claves(alf_keys)
-
-        alf_docs = [self.cegid_source.normalizar_piece(row) for row in rows_alf]
-        blf_keys = [doc.get("ref_siguiente") for doc in alf_docs if doc.get("ref_siguiente")]
-        rows_blf = self.cegid_source.obtener_documentos_por_claves(blf_keys)
-
-        rows_def = []
-        if incluir_def:
-            rows_def = self.cegid_source.obtener_documentos(
-                ["DEF"],
-                desde=desde,
-                hasta=hasta,
-                souche=souche,
-            )
-
-        rows_piece = rows_def + rows_cf + rows_alf + rows_blf
+        rows_ligne = self.cegid_source.obtener_lineas(
+            tipos_sync,
+            desde=desde,
+            hasta=hasta_exclusive,
+            souche=souche,
+        )
+        rows_ligne = self.cegid_source.aplicar_talles_por_ean(rows_ligne)
         documentos_normalizados = [self.cegid_source.normalizar_piece(row) for row in rows_piece]
-        documento_keys = [doc["codigo_documento"] for doc in documentos_normalizados]
-        rows_ligne = self.cegid_source.obtener_lineas_por_claves(documento_keys)
 
         lineas_por_documento = {}
         for row in rows_ligne:
@@ -97,7 +139,7 @@ class AuditoriaService:
                 origenes.append("PROPUESTA")
             eliminados = repo.eliminar_documentos_por_ventana(
                 desde=desde,
-                hasta=hasta,
+                hasta=hasta_exclusive,
                 souche=souche,
                 origenes=origenes,
             )
@@ -123,8 +165,20 @@ class AuditoriaService:
             "documentos": documentos_guardados,
             "lineas": lineas_guardadas,
             "documentos_reemplazados": eliminados,
-            "tipos": ["CF", "ALF", "BLF"],
+            "tipos": tipos_sync,
         }
+
+    def _hasta_exclusive(self, hasta):
+        if not hasta:
+            return None
+        if isinstance(hasta, str):
+            try:
+                return (datetime.strptime(hasta[:10], "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+            except ValueError:
+                return hasta
+        if isinstance(hasta, datetime):
+            return hasta + timedelta(days=1)
+        return hasta
 
     def _document_key_from_ligne(self, row):
         try:

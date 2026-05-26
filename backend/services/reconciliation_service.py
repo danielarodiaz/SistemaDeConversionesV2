@@ -166,6 +166,30 @@ class ReconciliationService:
 
         return sorted(salida, key=lambda x: (x["estado"], x["codigo_articulo"], x["talle"]))[:limit]
 
+    def lineas_def(self, proveedor=None, marca=None, mes=None, souche=None):
+        query = self._query_lineas(proveedor=proveedor, marca=marca, souche=souche)
+        query = query.filter(AuditoriaDocumento.origen == ORIGEN_PROPUESTA)
+        if mes:
+            desde, hasta = self._month_bounds(mes)
+            query = query.filter(
+                AuditoriaDocumento.fecha_entrega_prevista >= desde,
+                AuditoriaDocumento.fecha_entrega_prevista < hasta,
+            )
+
+        items = []
+        for linea, _doc, prov in query.all():
+            items.append({
+                "proveedor": prov.cod_prov if prov else "",
+                "marca": linea.marca or "",
+                "ean": linea.ean or "",
+                "codigo_articulo": linea.codigo_articulo or "",
+                "descripcion": linea.descripcion or "",
+                "talle": linea.talle or "",
+                "genero": linea.genero or "",
+                "cantidad_pedida": decimal_to_float(linea.cantidad),
+            })
+        return items
+
     def _query_lineas(self, proveedor=None, marca=None, mes=None, souche=None):
         query = (
             self.session.query(AuditoriaDocumentoLinea, AuditoriaDocumento, AuditoriaProveedor)
