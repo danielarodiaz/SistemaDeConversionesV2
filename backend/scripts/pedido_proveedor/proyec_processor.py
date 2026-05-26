@@ -15,7 +15,7 @@ from backend.utils.pedido_helpers import (
 )
 
 _COLUMNAS_REPORTE = [
-    "Fecha"
+    "Fecha",
     "Suc",
     "EAN",
     "SKU",
@@ -165,7 +165,7 @@ def process_proyec_pedido_proveedor(input_path: str, output_path: str) -> dict |
         data = _leer_archivo(input_path)
         if data.empty:
             return None
-
+        col_fecha = _buscar_columna(data.columns, ["Fecha"])
         col_sku = _buscar_columna(data.columns, ["SKU"])
         col_desc = _buscar_columna(data.columns, ["Descripcion", "Descripción"])
         col_talle = _buscar_columna(data.columns, ["Talle"])
@@ -180,6 +180,7 @@ def process_proyec_pedido_proveedor(input_path: str, output_path: str) -> dict |
 
         columnas_faltantes = [
             nombre for nombre, col in {
+                "Fecha": col_fecha,
                 "SKU": col_sku,
                 "Descripcion": col_desc,
                 "Talle": col_talle,
@@ -204,7 +205,6 @@ def process_proyec_pedido_proveedor(input_path: str, output_path: str) -> dict |
 
         registros_cegid = []
         items_auditoria = []
-        fecha_str = pd.to_datetime(row['Fecha'], dayfirst=True).strftime('%d%m%y')
 
         for i, row in data.iterrows():
             try:
@@ -214,7 +214,8 @@ def process_proyec_pedido_proveedor(input_path: str, output_path: str) -> dict |
                     continue
                 cantidad = _parsear_cantidad(row[col_cant])
                 precio_float = _parsear_preuni(row[col_preuni])
-
+                fecha = datetime.strptime(row[col_fecha], "%Y-%m-%d %H:%M:%S")
+                fecha_str = fecha.strftime('%d%m%y')
                 cliente_raw = str(row[col_cliente]).strip()
                 establecimiento, almacen = _extraer_establecimiento_y_suc(cliente_raw)
                 if almacen not in codigos_sucursales:
