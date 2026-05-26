@@ -34,6 +34,7 @@ from backend.scripts.pedido_proveedor.kdy_processor       import process_kdy_ped
 from backend.scripts.pedido_proveedor.kosiuko_processor   import process_kosiuko_pedido_proveedor
 from backend.scripts.pedido_proveedor.leuru_processor     import process_leuru_pedido_proveedor
 from backend.scripts.pedido_proveedor.procer_procesador   import process_procer_pedido_proveedor
+from backend.scripts.pedido_proveedor.proyec_processor    import process_proyec_pedido_proveedor
 from backend.scripts.pedido_proveedor.puma_processor      import process_puma_pedido_proveedor
 from backend.scripts.pedido_proveedor.saucony_processor   import process_saucony_pedido_proveedor
 from backend.scripts.pedido_proveedor.topper_processor    import process_topper_pedido_proveedor
@@ -196,6 +197,7 @@ PROCESSOR_MAP = {
     "kosiuko":          {"func": process_kosiuko_pedido_proveedor,  "ext": ".csv"},
     "leuru":            {"func": process_leuru_pedido_proveedor,    "ext": ".csv"},
     "procer":           {"func": process_procer_pedido_proveedor,    "ext": ".csv"},
+    "proyec":           {"func": process_proyec_pedido_proveedor,     "ext": ".csv"},
     "puma":             {"func": process_puma_pedido_proveedor,     "ext": ".csv"},
     "saucony":          {"func": process_saucony_pedido_proveedor,  "ext": ".csv"},
     "topper":           {"func": process_topper_pedido_proveedor,   "ext": ".csv"},
@@ -223,6 +225,7 @@ EXPECTED_INPUT_EXT = {
     "kosiuko":          ".txt",
     "leuru":            ".txt",
     "procer":           ".xlsx",
+    "proyec":           ".xlsx",
     "puma":             ".csv",
     "saucony":          ".xlsx",
     "topper":           ".txt",
@@ -270,7 +273,14 @@ def process_file(provider_id):
         result = processor_func(input_path, output_path)
 
         # Detectar si el resultado contiene datos de auditoría
-        audit_report = {"faltantes": [], "cambios_precio": [], "actualizar_ean": [], "conflictos_suc": []}
+        audit_report = {
+            "faltantes": [],
+            "cambios_precio": [],
+            "actualizar_ean": [],
+            "conflictos_suc": [],
+            "alertas_sucursales": [],
+            "avisos_sucursales": [],
+        }
         has_audit = False
 
         if isinstance(result, dict):
@@ -279,6 +289,8 @@ def process_file(provider_id):
                 or result.get('cambios_precio')
                 or result.get('actualizar_ean')
                 or result.get('conflictos_suc')
+                or result.get('alertas_sucursales')
+                or result.get('avisos_sucursales')
             )
             if tiene_alertas:
                 audit_report = result

@@ -58,6 +58,7 @@ PROVIDERS = {
     "kosiuko":          {"name": "Kosiuko",     "logo": "logo_kosiuko.png",     "cat": "Pedido Proveedor",   "ext": ".txt"},
     "leuru":            {"name": "Leuru",       "logo": "logo_leuru.png",       "cat": "Pedido Proveedor",   "ext": ".txt"},
     "procer":           {"name": "Procer",      "logo": "logo_procer.png",      "cat": "Pedido Proveedor",   "ext": ".xlsx"},
+    "proyec":           {"name": "Proyec",      "logo": "logo_proyec.png",      "cat": "Pedido Proveedor",   "ext": ".xlsx"},
     "puma":             {"name": "Puma",        "logo": "logo_puma.png",        "cat": "Pedido Proveedor",   "ext": ".csv"},
     "saucony":          {"name": "Saucony",     "logo": "logo_saucony.png",     "cat": "Pedido Proveedor",   "ext": ".xlsx"},
     "topper":           {"name": "Topper",      "logo": "logo_topper.png",      "cat": "Pedido Proveedor",   "ext": ".txt"},
@@ -315,6 +316,24 @@ def _render_audit_results(data: dict) -> None:
             if 'Remito' in df_conflictos.columns:
                 df_conflictos = df_conflictos.sort_values(by='Remito')
             st.dataframe(df_conflictos, width="stretch")
+
+    if audit.get("alertas_sucursales"):
+        df_alertas = pd.DataFrame(audit["alertas_sucursales"])
+        st.error(
+            f"🚨 Se detectaron {df_alertas['Suc'].nunique() if 'Suc' in df_alertas.columns else len(df_alertas)} "
+            "sucursal(es) que no existen en la base de datos."
+        )
+        with st.expander("🔍 Ver sucursales inexistentes", expanded=True):
+            st.dataframe(df_alertas, width="stretch")
+
+    if audit.get("avisos_sucursales"):
+        df_avisos = pd.DataFrame(audit["avisos_sucursales"])
+        st.info(
+            f"ℹ️ Se encontraron {df_avisos['Suc'].nunique() if 'Suc' in df_avisos.columns else len(df_avisos)} "
+            "línea(s) con sucursal por defecto (240001)."
+        )
+        with st.expander("🔍 Ver líneas con sucursal por defecto"):
+            st.dataframe(df_avisos, width="stretch")
 
     # Botón de descarga (común a todos)
     download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
