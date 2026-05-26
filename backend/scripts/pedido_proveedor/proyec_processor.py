@@ -15,6 +15,7 @@ from backend.utils.pedido_helpers import (
 )
 
 _COLUMNAS_REPORTE = [
+    "Fecha"
     "Suc",
     "EAN",
     "SKU",
@@ -203,7 +204,7 @@ def process_proyec_pedido_proveedor(input_path: str, output_path: str) -> dict |
 
         registros_cegid = []
         items_auditoria = []
-        fecha_str = datetime.now().strftime("%d%m%y")
+        fecha_str = pd.to_datetime(row['Fecha'], dayfirst=True).strftime('%d%m%y')
 
         for i, row in data.iterrows():
             try:
