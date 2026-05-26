@@ -6,24 +6,38 @@ from datetime import datetime
 
 def parsear_fecha(fecha_str):
     meses_es = {
-        "ene.": "01", "feb.": "02", "mar.": "03", "abr.": "04", "may.": "05", "jun.": "06",
-        "jul.": "07", "ago.": "08", "sep.": "09", "oct.": "10", "nov.": "11", "dic.": "12"
+        "ene": "01", "ene.": "01",
+        "feb": "02", "feb.": "02",
+        "mar": "03", "mar.": "03",
+        "abr": "04", "abr.": "04",
+        "may": "05", "may.": "05",
+        "jun": "06", "jun.": "06",
+        "jul": "07", "jul.": "07",
+        "ago": "08", "ago.": "08",
+        "sep": "09", "sep.": "09",
+        "oct": "10", "oct.": "10",
+        "nov": "11", "nov.": "11",
+        "dic": "12", "dic.": "12"
     }
 
     try:
-        fecha_str = str(fecha_str).strip()
-        if fecha_str.startswith("W"):
+        fecha_str = str(fecha_str).strip().lower()
+
+        if fecha_str.startswith("w"):
             fecha_str = fecha_str.split(" - ")[-1]
 
         partes = fecha_str.split()
+
         if len(partes) == 3 and partes[1] in meses_es:
             dia = partes[0].zfill(2)
             mes = meses_es[partes[1]]
             anio = partes[2]
+
             return f"{dia}{mes}{anio[-2:]}"
+
     except Exception as e:
         print(f"⚠️ Error parseando fecha: {fecha_str} → {e}")
-    
+
     print(f"⚠️ Formato inesperado en la fecha de entrega: {fecha_str}")
     return None
 
@@ -69,7 +83,12 @@ def process_adidas_propuesta_compra(input_path, output_path):
                 if cantidad <= 0:
                     continue
 
-                fecha_entrega_raw = str(row.get('Requested Delivery Date', '')).strip()
+                fecha_entrega_raw = str(
+                    row.get('Requested Delivery Date') 
+                    or row.get('Requested On Shelf Date(s)') 
+                    or ''
+                ).strip()
+
                 fecha_entrega = parsear_fecha(fecha_entrega_raw)
 
                 fecha_doc = str(row.get('Order creation date', '')).strip()
