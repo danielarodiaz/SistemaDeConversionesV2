@@ -52,9 +52,13 @@ def resolver_establecimiento(empresa_str) -> str:
     Retorna '002' si la empresa es Marathon SRL, '001' en cualquier otro caso.
     Acepta variantes como 'MARATHON S.R.L.' o 'Marathon SRL'.
     """
+    variantes = {
+        '002': ['MARATHON SRL', 'MARATHON', 'MARATHON S.A.', 'MARATHON SA', 'MARATHON S.A', 'MARATHON DEPORTES'],
+    }
     normalizado = str(empresa_str).replace('.', '').strip().upper()
-    if normalizado == 'MARATHON SRL' or normalizado == 'MARATHON':
-        return '002'
+    for establecimiento, variantes in variantes.items():
+        if normalizado in variantes:
+            return establecimiento
     return '001'
 
 

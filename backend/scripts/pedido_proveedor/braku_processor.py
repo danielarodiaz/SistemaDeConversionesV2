@@ -21,9 +21,8 @@ def _formatear_referencia(remito_raw: str) -> str:
     if '-' in remito:
         parte1, parte2 = remito.split('-', 1)
         return f"{parte1.strip().zfill(4)}-{parte2.strip().zfill(8)}"
-    # Si viene sin guión, lo trata como número completo de 12 dígitos
-    remito_z = remito.zfill(12)
-    return f"{remito_z[:4]}-{remito_z[4:]}"
+    # Si viene sin guión, usa por defecto 0003
+    return f"0003-{remito.zfill(8)}"
 
 
 def process_braku_pedido_proveedor(input_path: str, output_path: str) -> dict:
@@ -49,6 +48,14 @@ def process_braku_pedido_proveedor(input_path: str, output_path: str) -> dict:
                 almacen = str(int(row['Suc'])).zfill(6)
                 descuento = resolver_descuento(row.get('Dto.Com'))
                 descripcion_raw = str(row.get('Descripcion', '')).strip()
+                articulo_completo = str(row.get('Articulo', '')).strip()
+                talle = str(row.get('Talle', '')).strip()
+
+                articulo = articulo_completo
+                # Solo intenta remover el talle si existe
+                if talle:
+                    if articulo_completo.upper().endswith(talle.upper()):
+                        articulo = articulo_completo[:-len(talle)].strip()
 
                 registros_cegid.append({
                     'CAB': 'ZCOC1_',
@@ -64,11 +71,11 @@ def process_braku_pedido_proveedor(input_path: str, output_path: str) -> dict:
                 })
                 items_auditoria.append(armar_item_auditoria(
                     barras=codigo_barras,
-                    articulo=codigo_barras,          # Braku no tiene código de artículo separado
+                    articulo=articulo,
                     precio_float=precio_float,
                     detalles={
-                        'Material': codigo_barras,
-                        'Size': '',
+                        'Material': articulo,
+                        'Size': talle,
                         'Codigo_EAN': codigo_barras,
                         'Descripción': descripcion_raw,
                         'Precio': precio_float,
