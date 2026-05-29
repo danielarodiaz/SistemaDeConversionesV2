@@ -1,3 +1,4 @@
+import copy
 import pandas as pd
 from backend.utils.cegid_utils import obtener_costos_por_codigos_barras, obtener_costo_por_modelo
 
@@ -77,7 +78,7 @@ class CegidValidator:
                     if cod_art not in articulos_existentes:
                         clave_faltante = f"{cod_art}_{talle_clean}"
                         if clave_faltante not in faltantes_unicos:
-                            detalles = art.get("detalles", {}).copy()
+                            detalles = copy.deepcopy(art.get("detalles", {}))
                             detalles["Size"] = talle_clean
                             faltantes_unicos[clave_faltante] = detalles
 

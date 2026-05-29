@@ -99,193 +99,256 @@ def _api_post(path: str, payload=None) -> dict:
 
 
 def _render_auditoria_logistica() -> None:
-    st.subheader("Panel de Control de Auditoria")
+    st.subheader("Control de Cumplimiento Logístico")
 
-    default_hasta = datetime.now().date() + timedelta(days=1)
-    default_desde = default_hasta - timedelta(days=7)
+    # Diccionario de mapeo UX/UI para nombres humanos de meses
+    MAPEO_MESES = {
+        "01": "Enero", "02": "Febrero", "03": "Marzo", "04": "Abril",
+        "05": "Mayo", "06": "Junio", "07": "Julio", "08": "Agosto",
+        "09": "Septiembre", "10": "Octubre", "11": "Noviembre", "12": "Diciembre"
+    }
+    
+    anios_lista = [2025, 2026, 2027]
+    mes_actual_num = datetime.now().strftime("%m")
+    anio_actual = datetime.now().year
 
     if st.button("Limpiar filtros"):
         st.session_state["aud_empresa"] = ""
-        st.session_state["aud_desde"] = default_desde
-        st.session_state["aud_hasta"] = default_hasta
+        st.session_state["aud_mes_nombre"] = MAPEO_MESES[mes_actual_num]
+        st.session_state["aud_anio_sel"] = anio_actual
         st.session_state["aud_proveedor"] = ""
         st.session_state["aud_marca"] = ""
         st.session_state["aud_estado"] = ""
-        st.session_state["aud_mes"] = ""
-        st.session_state["aud_documento_id"] = 0
-        st.session_state["aud_incluir_def"] = True
         st.session_state["aud_show_results"] = False
+        st.rerun()
 
-    sync_col, empresa_col, desde_col, hasta_col, def_col = st.columns([1, 1, 1, 1, 1])
-    empresa = empresa_col.selectbox(
+    # ── Horizonte Global de Control ───────────────────────────────────────────
+    st.markdown("### 🗓️ Horizonte Global de Análisis")
+    top_col1, top_col2, top_col3, top_col4 = st.columns([1, 1, 1, 1.5])
+    
+    empresa = top_col1.selectbox(
         "Empresa",
         ["", "002", "001"],
-        format_func=lambda value: {
-            "": "Ambas",
-            "002": "Marathon",
-            "001": "Blanco",
-        }.get(value, value),
+        format_func=lambda value: {"": "Ambas", "002": "Marathon", "001": "Blanco"}.get(value, value),
         key="aud_empresa",
     )
-    desde = desde_col.date_input("Desde", value=default_desde, key="aud_desde")
-    hasta = hasta_col.date_input("Hasta", value=default_hasta, key="aud_hasta")
-    incluir_def = def_col.checkbox("Incluir DEF", value=True, key="aud_incluir_def")
-    with sync_col:
+    
+    # Cambio UX/UI: Muestra nombres de meses, pero guarda la selección amigable
+    lista_nombres_meses = list(MAPEO_MESES.values())
+    mes_nombre_sel = top_col2.selectbox(
+        "Mes Planificado", 
+        lista_nombres_meses, 
+        index=lista_nombres_meses.index(MAPEO_MESES[mes_actual_num]),
+        key="aud_mes_nombre"
+    )
+    
+    anio_sel = top_col3.selectbox(
+        "Año Planificado", 
+        anios_lista, 
+        index=anios_lista.index(anio_actual) if anio_actual in anios_lista else 1,
+        key="aud_anio_sel"
+    )
+
+    # Recuperamos el número del mes a partir de su nombre para armar las llaves de la API
+    mes_num_clave = [k for k, v in MAPEO_MESES.items() if v == mes_nombre_sel][0]
+    mes_api = f"{anio_sel}-{mes_num_clave}"       # "2026-03" -> Entiende el backend
+    mes_pantalla = f"{mes_nombre_sel} {anio_sel}" # "Marzo 2026" -> Entiende el humano
+
+    with top_col4:
+        st.markdown("<div style='padding-top: 24px;'></div>", unsafe_allow_html=True)
         if st.button("Sincronizar CEGID", type="primary", width="stretch"):
-            with st.spinner("Consultando PIECE/LIGNE..."):
+            with st.spinner(f"Sincronizando {mes_pantalla} desde el ERP..."):
                 try:
+                    # FIX: Enviamos la clave exacta 'mes_target' esperada por la API corregida
                     result = _api_post(
                         "/api/auditoria/sync/cegid",
                         {
-                            "tipos": ["CF", "ALF", "BLF"],
-                            "desde": desde.isoformat(),
-                            "hasta": hasta.isoformat(),
-                            "souche": empresa or None,
-                            "incluir_def": incluir_def,
+                            "mes_target": mes_api,
+                            "souche": empresa or None
                         },
                     )
-                    st.success(f"Sincronizados: {result.get('documentos', 0)} documentos y {result.get('lineas', 0)} lineas.")
+                    st.success(f"Sincronización Exitosa: {result.get('documentos', 0)} documentos y {result.get('lineas', 0)} líneas impactadas.")
                     st.session_state["aud_show_results"] = False
                 except Exception as e:
-                    st.error(f"No se pudo sincronizar CEGID: {e}")
+                    st.error(f"No se pudo sincronizar con el ERP: {e}")
 
     st.divider()
-    f1, f2, f3, f4, f5 = st.columns([1, 1, 1, 1, 1])
+    
+    # ── Filtros Secundarios de Búsqueda ───────────────────────────────────────
+    st.markdown("### 🔍 Filtros de Búsqueda")
+    f1, f2, f3, f4 = st.columns([1, 1, 1, 1])
     proveedor = f1.text_input("Proveedor", placeholder="Ej: ADIDA", key="aud_proveedor").strip() or None
     marca = f2.text_input("Marca", placeholder="Ej: ADIDAS", key="aud_marca").strip() or None
     estado = f3.selectbox(
-        "Estado",
-        ["", "OK", "PENDIENTE", "PROPUESTA_NO_CARGADA", "PENDIENTE_RECEPCION", "NOTIFICACION_PARCIAL", "SOBRE_ENTREGA"],
+        "Estado Logístico",
+        ["", "OK_COMPLETO", "PARCIAL", "NO_RECIBIDO", "DEMORADO_COMPLETO"],
         format_func=lambda value: "Todos" if value == "" else value,
         key="aud_estado",
     ) or None
-    mes = f4.text_input("Mes entrega", value="", placeholder="YYYY-MM", key="aud_mes").strip() or None
-    if f5.button("Aplicar filtros", width="stretch"):
-        st.session_state["aud_show_results"] = True
+    
+    with f4:
+        st.markdown("<div style='padding-top: 24px;'></div>", unsafe_allow_html=True)
+        if st.button("Consultar Plan vs Realidad", type="secondary", width="stretch"):
+            st.session_state["aud_show_results"] = True
 
     if not st.session_state.get("aud_show_results", False):
-        st.info("Sincroniza CEGID o aplica filtros para ver resultados.")
+        st.info(f"Seleccioná el Horizonte Temporal superior y aplicá los filtros para auditar la mercadería.")
         return
 
-    try:
-        data = _api_get(
-            "/api/auditoria/documentos",
-            params={
-                "proveedor": proveedor,
-                "estado": estado,
-                "marca": marca,
-                "mes": mes,
-                "souche": empresa or None,
-            },
-        )
-        items = data.get("items", [])
-    except Exception as e:
-        st.error(f"No se pudo consultar auditoria: {e}")
-        return
-
-    if not items:
-        st.warning("Todavia no hay documentos conciliados para mostrar.")
-        return
-
-    df = pd.DataFrame(items)
-    total_pedido = df.get("cantidad_pedida", pd.Series(dtype=float)).sum()
-    total_facturado = df.get("cantidad_facturada", pd.Series(dtype=float)).sum()
-    total_notificado = df.get("cantidad_notificada", pd.Series(dtype=float)).sum()
-    total_recibido = df.get("cantidad_recibida", pd.Series(dtype=float)).sum()
-    circuitos_ok = int((df.get("estado", pd.Series(dtype=str)) == "OK").sum())
-    otif = round(circuitos_ok / len(df) * 100, 2) if len(df) else 0
-    base_pendiente = total_pedido if total_pedido else total_facturado
-    unidades_pendientes = max(base_pendiente - total_recibido, 0)
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("OTIF filtrado", f"{otif}%")
-    k2.metric("Documentos", len(df))
-    k3.metric("Facturado CF", f"{total_facturado:,.0f}")
-    k4.metric("Recibido BLF", f"{total_recibido:,.0f}")
-
-    k5, k6, k7, _ = st.columns(4)
-    k5.metric("Pedido DEF", f"{total_pedido:,.0f}")
-    k6.metric("Notificado ALF", f"{total_notificado:,.0f}")
-    k7.metric("Unidades pendientes", f"{unidades_pendientes:,.0f}")
-
-    columnas = [
-        "documento_id",
-        "codigo_documento",
-        "proveedor",
-        "cegid_souche",
-        "marca",
-        "articulos",
-        "cantidad_pedida",
-        "cantidad_facturada",
-        "cantidad_notificada",
-        "cantidad_recibida",
-        "cumplimiento",
-        "estado",
-    ]
-    columnas = [col for col in columnas if col in df.columns]
-    st.dataframe(df[columnas], width="stretch", hide_index=True)
-
-    documento_id = st.number_input("Documento para detalle", min_value=0, step=1, key="aud_documento_id")
-
-    if documento_id:
-        try:
-            detalle = _api_get(f"/api/auditoria/documentos/{int(documento_id)}")
-        except Exception as e:
-            st.error(f"No se pudo abrir el detalle: {e}")
-            return
-
-        st.subheader(f"Detalle {detalle['documento']['codigo_documento']}")
-        detalle_df = pd.DataFrame(detalle.get("lineas", []))
-        if detalle_df.empty:
-            st.info("El documento no tiene lineas relacionadas.")
-        else:
-            st.dataframe(detalle_df, width="stretch", hide_index=True)
-
-    st.subheader("Comparativo DEF vs BLF")
+    # ── Ingesta de Datos desde el Backend ─────────────────────────────────────
     try:
         plan_data = _api_get(
             "/api/auditoria/plan-vs-recepcion",
             params={
                 "proveedor": proveedor,
                 "marca": marca,
-                "mes": mes,
+                "mes": mes_api,
                 "souche": empresa or None,
             },
         )
         plan_items = plan_data.get("items", [])
     except Exception as e:
-        st.error(f"No se pudo consultar DEF vs BLF: {e}")
+        st.error(f"Error al conectar con el motor de conciliación: {e}")
         return
 
     if not plan_items:
-        st.info("No hay datos DEF/BLF para comparar con los filtros actuales.")
-    else:
-        plan_df = pd.DataFrame(plan_items)
-        st.dataframe(plan_df, width="stretch", hide_index=True)
+        st.warning(f"No se registran datos de planificación para {mes_pantalla}.")
+        return
 
-    st.subheader("Recepciones posteriores de articulos DEF")
-    if not mes:
-        st.info("Indicá un mes de entrega para buscar recepciones posteriores de los artículos propuestos.")
-    else:
+    df_plan = pd.DataFrame(plan_items)
+    if estado:
+        df_plan = df_plan[df_plan["estado"] == estado]
+
+    if df_plan.empty:
+        st.warning("No se encontraron registros que coincidan con el Estado Logístico seleccionado.")
+        return
+
+    # ── KPIs de Abastecimiento ────────────────────────────────────────────────
+    total_pedido = df_plan["cantidad_pedida"].sum()
+    total_recibido = df_plan["cantidad_recibida"].sum()
+    unidades_pendientes = max(total_pedido - total_recibido, 0)
+    
+    concluidos = int(df_plan["estado"].isin(["OK_COMPLETO", "DEMORADO_COMPLETO"]).sum())
+    fill_rate_items = round((concluidos / len(df_plan) * 100), 2) if len(df_plan) else 0
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Items Concluidos (SLA)", f"{fill_rate_items}%")
+    k2.metric("Total Pedido (DEF)", f"{total_pedido:,.0f} u.")
+    k3.metric("Total Entrado (BLF)", f"{total_recibido:,.0f} u.")
+    k4.metric("Unidades Pendientes", f"{unidades_pendientes:,.0f} u.")
+
+    st.divider()
+
+    # ── Estructuración de Vistas Logísticas ────────────────────────────────────
+    tab1, tab2, tab3 = st.tabs([
+        "📊 Comparativo DEF vs BLF", 
+        "🚚 Línea de Tiempo por Artículo", 
+        "🗓️ Análisis de Recepciones Posteriores"
+    ])
+
+    # PESTAÑA 1: Grilla General
+    with tab1:
+        st.markdown(f"### Cumplimiento de Stock — {mes_pantalla}")
+        columnas_plan = [
+            "mes_planificado", "proveedor", "marca", "codigo_articulo", "descripcion", 
+            "talle", "cantidad_pedida", "cantidad_recibida", "diferencia", "cumplimiento", "estado"
+        ]
+        st.dataframe(
+            df_plan[columnas_plan],
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "mes_planificado": st.column_config.TextColumn("Horizonte"),
+                "descripcion": st.column_config.TextColumn("Descripción del Artículo"),
+                "cantidad_pedida": st.column_config.NumberColumn("Pedida (DEF)", format="%d u."),
+                "cantidad_recibida": st.column_config.NumberColumn("Recibida (BLF)", format="%d u."),
+                "diferencia": st.column_config.NumberColumn("Diferencia", format="%d u."),
+                "cumplimiento": st.column_config.NumberColumn("Cumplimiento", format="%.2f %%"),
+                "estado": st.column_config.TextColumn("Estado")
+            }
+        )
+
+    # PESTAÑA 2: Curva Completa de Talles
+    with tab2:
+        st.markdown("### Historial de Entregas por Artículo")
+        articulos_disponibles = sorted(df_plan["codigo_articulo"].unique())
+        articulo_sel = st.selectbox("Seleccionar Código de Artículo para ver su curva", [""] + list(articulos_disponibles), key="sel_art_timeline")
+
+        if articulo_sel:
+            df_curva = df_plan[df_plan["codigo_articulo"] == articulo_sel]
+            desc_articulo = df_curva["descripcion"].iloc[0] if not df_curva.empty else ""
+
+            st.markdown(f"**Trazabilidad de Remitos para:** `{articulo_sel}` — *{desc_articulo}*")
+            
+            historial_consolidado = []
+            for _, fila_talle in df_curva.iterrows():
+                talle_actual = fila_talle["talle"]
+                historial_lote = fila_talle.get("historial_detalle", [])
+                for ingreso in historial_lote:
+                    ingreso_con_talle = ingreso.copy()
+                    ingreso_con_talle["talle"] = talle_actual
+                    historial_consolidado.append(ingreso_con_talle)
+
+            if not historial_consolidado:
+                st.error("❌ Faltante Absoluto: Este artículo no registra ningún ingreso físico en el depósito para ninguno de sus talles.")
+            else:
+                df_historial = pd.DataFrame(historial_consolidado)
+                df_historial = df_historial.sort_values(by=["talle", "fecha_ingreso"])
+                
+                st.dataframe(
+                    df_historial,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "talle": st.column_config.TextColumn("Talle"),
+                        "comprobante": st.column_config.TextColumn("Remito (BLF)"),
+                        "fecha_ingreso": st.column_config.TextColumn("Fecha Entrada"),
+                        "cantidad_ingresada": st.column_config.NumberColumn("Cantidad Recibida", format="%d u."),
+                        "dias_desvio": st.column_config.NumberColumn("Desfase (Meses)"),
+                        "etiqueta_tiempo": st.column_config.TextColumn("Estado SLA")
+                    }
+                )
+
+    # PESTAÑA 3: Rezagos
+    with tab3:
+        st.markdown(f"### Mercadería Planificada para {mes_pantalla} que llegó en meses posteriores")
         try:
             posteriores_data = _api_get(
                 "/api/auditoria/def/recepciones-posteriores",
                 params={
                     "proveedor": proveedor,
                     "marca": marca,
-                    "mes": mes,
+                    "mes": mes_api,
                     "souche": empresa or None,
                 },
             )
-            posteriores = posteriores_data.get("items", [])
+            posteriores_items = posteriores_data.get("items", [])
         except Exception as e:
-            st.error(f"No se pudo consultar recepciones posteriores: {e}")
+            st.error(f"No se pudo consultar el reporte de entregas tardías: {e}")
             return
 
-        if not posteriores:
-            st.info("No se encontraron recepciones posteriores para los artículos DEF filtrados.")
+        if not posteriores_items:
+            st.success(f"✨ ¡Operación Limpia! No se registran ingresos fuera de término para las propuestas de {mes_pantalla}.")
         else:
-            st.dataframe(pd.DataFrame(posteriores), width="stretch", hide_index=True)
-
+            df_post = pd.DataFrame(posteriores_items)
+            columnas_post = [
+                "codigo_articulo", "descripcion", "talle", "mes_planificado", 
+                "cantidad_pedida_def", "comprobante_blf", "fecha_recepcion_real", 
+                "cantidad_recibida_blf", "meses_desvio", "estado_entrega"
+            ]
+            st.dataframe(
+                df_post[columnas_post],
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "mes_planificado": st.column_config.TextColumn("Horizonte Orig."),
+                    "descripcion": st.column_config.TextColumn("Descripción del Artículo"),
+                    "cantidad_pedida_def": st.column_config.NumberColumn("Pedida Original", format="%d u."),
+                    "cantidad_recibida_blf": st.column_config.NumberColumn("Ingresado en Lote", format="%d u."),
+                    "fecha_recepcion_real": st.column_config.TextColumn("Fecha de Llegada"),
+                    "estado_entrega": st.column_config.TextColumn("Estado Recibo")
+                }
+            )
 # ── Función reutilizable para mostrar resultados de auditoría ─────────────────
 def _render_audit_results(data: dict) -> None:
     """Muestra los resultados de auditoría y el botón de descarga."""

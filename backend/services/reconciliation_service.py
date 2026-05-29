@@ -1,46 +1,47 @@
 from collections import defaultdict
 from datetime import datetime
+from decimal import Decimal
+from sqlalchemy.orm import Session
 
 try:
     from backend.models import AuditoriaDocumento, AuditoriaDocumentoLinea, AuditoriaProveedor
-    from backend.services.auditoria_repository import decimal_to_float
 except ModuleNotFoundError:
     from models import AuditoriaDocumento, AuditoriaDocumentoLinea, AuditoriaProveedor
-    from services.auditoria_repository import decimal_to_float
-
 
 ORIGEN_PROPUESTA = "PROPUESTA"
-ORIGEN_PEDIDO = "PEDIDO"
-ORIGEN_NOTIFICACION = "NOTIFICACION"
 ORIGEN_RECEPCION = "RECEPCION"
 
-
 class ReconciliationService:
-    def __init__(self, session):
+    def __init__(self, session: Session):
         self.session = session
 
     def resumen_ejecutivo(self):
-        lineas = self._query_lineas().all()
-        resumen = self._agrupar_por_documento(lineas)
-
-        total = len(resumen)
-        perfectos = sum(1 for item in resumen if item["estado"] == "OK")
-        pendiente_recibir = sum(
-            max(item["cantidad_pedida"] - item["cantidad_recibida"], 0) * item["precio_promedio"]
-            for item in resumen
-        )
-        retrasos = [item["dias_retraso"] for item in resumen if item["dias_retraso"] is not None]
-
+        items = self.plan_vs_recepcion(limit=10000)
+        total = len(items)
+        completos = sum(1 for item in items if item["estado"] in ("OK_COMPLETO", "DEMORADO_COMPLETO"))
+        pendientes = sum(max(item["cantidad_pedida"] - item["cantidad_recibida"], 0) for item in items)
+        desfasajes = [
+            ingreso.get("dias_desvio", ingreso.get("desvio_meses", 0))
+            for item in items
+            for ingreso in item.get("historial_detalle", [])
+            if ingreso.get("dias_desvio", ingreso.get("desvio_meses", 0)) > 0
+        ]
         return {
-            "otif_general": round((perfectos / total * 100), 2) if total else 0,
-            "monto_en_riesgo": round(pendiente_recibir, 2),
-            "promedio_retraso": round(sum(retrasos) / len(retrasos), 2) if retrasos else 0,
+            "otif_general": round((completos / total * 100), 2) if total else 0,
+            "monto_en_riesgo": 0,
+            "promedio_retraso": round(sum(desfasajes) / len(desfasajes), 2) if desfasajes else 0,
             "documentos_analizados": total,
+            "unidades_pendientes": round(pendientes, 4),
         }
 
     def explorador_cumplimiento(self, proveedor=None, estado=None, marca=None, mes=None, souche=None, limit=200):
-        lineas = self._query_lineas(proveedor=proveedor, marca=marca, mes=mes, souche=souche).all()
-        items = self._agrupar_por_documento(lineas)
+        items = self.plan_vs_recepcion(
+            proveedor=proveedor,
+            marca=marca,
+            mes=mes,
+            souche=souche,
+            limit=limit,
+        )
         if estado:
             items = [item for item in items if item["estado"] == estado]
         return items[:limit]
@@ -54,279 +55,216 @@ class ReconciliationService:
         if not documento:
             return None
 
-        detalle = defaultdict(lambda: {
-            "ean": "",
-            "codigo_articulo": "",
-            "descripcion": "",
-            "talle": "",
-            "marca": "",
-            "genero": "",
-            "deposito": "",
-            "cantidad_pedida": 0.0,
-            "cantidad_facturada": 0.0,
-            "cantidad_notificada": 0.0,
-            "cantidad_recibida": 0.0,
-        })
-
-        circuito_key = self._documento_circuito_key(documento)
-        lineas = self._query_lineas().filter(
-            (AuditoriaDocumento.codigo_documento == circuito_key)
-            | (AuditoriaDocumentoLinea.pieza_origen == circuito_key)
-        ).all()
-
-        for linea, doc, _proveedor in lineas:
-            key = linea.ean or linea.codigo_articulo or f"linea-{linea.id}"
-            item = detalle[key]
-            item["ean"] = linea.ean or ""
-            item["codigo_articulo"] = linea.codigo_articulo or ""
-            item["descripcion"] = linea.descripcion or ""
-            item["talle"] = linea.talle or ""
-            item["marca"] = linea.marca or ""
-            item["genero"] = linea.genero or ""
-            item["deposito"] = linea.deposito or ""
-            cantidad = decimal_to_float(linea.cantidad)
-            if doc.origen == ORIGEN_PROPUESTA:
-                item["cantidad_pedida"] += cantidad
-            elif doc.origen == ORIGEN_PEDIDO:
-                item["cantidad_facturada"] += cantidad
-            elif doc.origen == ORIGEN_NOTIFICACION:
-                item["cantidad_notificada"] += cantidad
-            elif doc.origen == ORIGEN_RECEPCION:
-                item["cantidad_recibida"] += cantidad
-
         return {
-            "documento": self._documento_to_dict(documento),
-            "lineas": [self._estado_linea(item) for item in detalle.values()],
+            "documento": {
+                "id": documento.id,
+                "origen": documento.origen,
+                "codigo_documento": documento.codigo_documento,
+                "cegid_souche": documento.cegid_souche,
+                "cegid_numero": documento.cegid_numero,
+                "fecha_documento": documento.fecha_documento.isoformat() if documento.fecha_documento else None,
+                "fecha_entrega_prevista": documento.fecha_entrega_prevista.isoformat() if documento.fecha_entrega_prevista else None,
+                "estado": documento.estado,
+            },
+            "lineas": [
+                {
+                    "ean": linea.ean,
+                    "codigo_articulo": linea.codigo_articulo,
+                    "descripcion": linea.descripcion,
+                    "talle": linea.talle,
+                    "marca": linea.marca,
+                    "genero": linea.genero,
+                    "deposito": linea.deposito,
+                    "cantidad": float(linea.cantidad or 0),
+                }
+                for linea in documento.lineas
+            ],
         }
 
-    def plan_vs_recepcion(self, proveedor=None, marca=None, mes=None, souche=None, limit=500):
-        query = self._query_lineas(proveedor=proveedor, marca=marca, souche=souche)
-        if mes:
-            desde, hasta = self._month_bounds(mes)
-            query = query.filter(
-                (
-                    (AuditoriaDocumento.origen == ORIGEN_PROPUESTA)
-                    & (AuditoriaDocumento.fecha_entrega_prevista >= desde)
-                    & (AuditoriaDocumento.fecha_entrega_prevista < hasta)
-                )
-                | (
-                    (AuditoriaDocumento.origen == ORIGEN_RECEPCION)
-                    & (AuditoriaDocumento.fecha_documento >= desde)
-                    & (AuditoriaDocumento.fecha_documento < hasta)
-                )
-            )
+    def _get_quarter_bounds(self, year: int, quarter_num: int):
+        """Retorna las fechas límites de inicio y fin para un trimestre (Q)."""
+        mapping = {
+            1: (datetime(year, 1, 1), datetime(year, 3, 31, 23, 59, 59)),
+            2: (datetime(year, 4, 1), datetime(year, 6, 30, 23, 59, 59)),
+            3: (datetime(year, 7, 1), datetime(year, 9, 30, 23, 59, 59)),
+            4: (datetime(year, 10, 1), datetime(year, 12, 31, 23, 59, 59))
+        }
+        return mapping.get(quarter_num)
 
-        grupos = defaultdict(lambda: {
-            "proveedor": "",
-            "marca": "",
-            "ean": "",
-            "codigo_articulo": "",
-            "descripcion": "",
-            "talle": "",
-            "genero": "",
-            "cantidad_pedida": 0.0,
-            "cantidad_recibida": 0.0,
-        })
+    def _calcular_desfase_meses(self, fecha_real: datetime, fecha_limite: datetime) -> int:
+        """Calcula la demora en meses calendario si la entrega superó el límite de tolerancia."""
+        if fecha_real <= fecha_limite:
+            return 0
+        return (fecha_real.year - fecha_limite.year) * 12 + (fecha_real.month - fecha_limite.month)
 
-        for linea, doc, prov in query.all():
-            if doc.origen not in (ORIGEN_PROPUESTA, ORIGEN_RECEPCION):
-                continue
-            key = linea.ean or f"{linea.codigo_articulo}|{linea.talle}"
-            item = grupos[key]
-            item["proveedor"] = prov.cod_prov if prov else ""
-            item["marca"] = linea.marca or item["marca"]
-            item["ean"] = linea.ean or ""
-            item["codigo_articulo"] = linea.codigo_articulo or ""
-            item["descripcion"] = linea.descripcion or ""
-            item["talle"] = linea.talle or ""
-            item["genero"] = linea.genero or ""
-            cantidad = decimal_to_float(linea.cantidad)
-            if doc.origen == ORIGEN_PROPUESTA:
-                item["cantidad_pedida"] += cantidad
-            elif doc.origen == ORIGEN_RECEPCION:
-                item["cantidad_recibida"] += cantidad
-
-        salida = []
-        for item in grupos.values():
-            pedido = item["cantidad_pedida"]
-            recibido = item["cantidad_recibida"]
-            item["diferencia"] = recibido - pedido
-            item["cumplimiento"] = round((recibido / pedido * 100), 2) if pedido else None
-            if not pedido and recibido:
-                item["estado"] = "SIN_PROPUESTA_EN_MES"
-            elif pedido and not recibido:
-                item["estado"] = "NO_RECIBIDO"
-            elif recibido < pedido:
-                item["estado"] = "PARCIAL"
-            elif recibido > pedido:
-                item["estado"] = "SOBRE_RECIBIDO"
-            else:
-                item["estado"] = "OK"
-            salida.append(item)
-
-        return sorted(salida, key=lambda x: (x["estado"], x["codigo_articulo"], x["talle"]))[:limit]
-
-    def lineas_def(self, proveedor=None, marca=None, mes=None, souche=None):
-        query = self._query_lineas(proveedor=proveedor, marca=marca, souche=souche)
-        query = query.filter(AuditoriaDocumento.origen == ORIGEN_PROPUESTA)
-        if mes:
-            desde, hasta = self._month_bounds(mes)
-            query = query.filter(
-                AuditoriaDocumento.fecha_entrega_prevista >= desde,
-                AuditoriaDocumento.fecha_entrega_prevista < hasta,
-            )
-
-        items = []
-        for linea, _doc, prov in query.all():
-            items.append({
-                "proveedor": prov.cod_prov if prov else "",
-                "marca": linea.marca or "",
-                "ean": linea.ean or "",
-                "codigo_articulo": linea.codigo_articulo or "",
-                "descripcion": linea.descripcion or "",
-                "talle": linea.talle or "",
-                "genero": linea.genero or "",
-                "cantidad_pedida": decimal_to_float(linea.cantidad),
-            })
-        return items
-
-    def _query_lineas(self, proveedor=None, marca=None, mes=None, souche=None):
-        query = (
+    def plan_vs_recepcion(self, proveedor=None, marca=None, mes=None, souche=None, limit=500, recepcion_souche="__same__"):
+        """
+        Engine V2: Asignación por casilleros dinámicos con soporte para ventanas macro Q.
+        """
+        # 1. Recuperar todas las demandas (DEF)
+        query_def = (
             self.session.query(AuditoriaDocumentoLinea, AuditoriaDocumento, AuditoriaProveedor)
             .join(AuditoriaDocumento, AuditoriaDocumentoLinea.documento_id == AuditoriaDocumento.id)
             .outerjoin(AuditoriaProveedor, AuditoriaDocumento.proveedor_id == AuditoriaProveedor.id)
+            .filter(AuditoriaDocumento.origen == ORIGEN_PROPUESTA)
         )
+        
         if proveedor:
-            query = query.filter(AuditoriaProveedor.cod_prov == proveedor)
+            query_def = query_def.filter(AuditoriaProveedor.cod_prov == proveedor)
         if souche:
-            query = query.filter(AuditoriaDocumento.cegid_souche == souche)
+            query_def = query_def.filter(AuditoriaDocumento.cegid_souche == souche)
         if marca:
-            query = query.filter(AuditoriaDocumentoLinea.marca == marca)
-        if mes:
-            desde, hasta = self._month_bounds(mes)
-            query = query.filter(
-                AuditoriaDocumento.fecha_entrega_prevista >= desde,
-                AuditoriaDocumento.fecha_entrega_prevista < hasta,
-            )
-        return query
+            query_def = query_def.filter(AuditoriaDocumentoLinea.marca == marca)
 
-    def _agrupar_por_documento(self, lineas):
-        grupos = {}
-        for linea, doc, proveedor in lineas:
-            key = self._grupo_circuito_key(linea, doc)
-            if key not in grupos:
-                grupos[key] = {
-                    "documento_id": doc.id,
-                    "codigo_documento": key,
-                    "proveedor": proveedor.cod_prov if proveedor else "",
-                    "cegid_souche": doc.cegid_souche,
-                    "marca": proveedor.marca if proveedor else "",
-                    "fecha_documento": doc.fecha_documento.isoformat() if doc.fecha_documento else None,
-                    "fecha_entrega_prevista": doc.fecha_entrega_prevista.isoformat() if doc.fecha_entrega_prevista else None,
-                    "cantidad_pedida": 0.0,
-                    "cantidad_facturada": 0.0,
-                    "cantidad_notificada": 0.0,
-                    "cantidad_recibida": 0.0,
-                    "importe_facturado": 0.0,
-                    "dias_retraso": None,
-                    "articulos": 0,
-                    "_eans": set(),
-                    "_marcas": set(),
-                }
+        lineas_def = query_def.all()
+        if not lineas_def:
+            return []
 
-            item = grupos[key]
-            if linea.ean:
-                item["_eans"].add(linea.ean)
-            if linea.marca:
-                item["_marcas"].add(linea.marca)
-            cantidad = decimal_to_float(linea.cantidad)
-            importe = decimal_to_float(linea.importe)
-            precio = decimal_to_float(linea.precio_unitario)
-            if doc.origen == ORIGEN_PROPUESTA:
-                item["cantidad_pedida"] += cantidad
-            elif doc.origen == ORIGEN_PEDIDO:
-                item["cantidad_facturada"] += cantidad
-            elif doc.origen == ORIGEN_NOTIFICACION:
-                item["cantidad_notificada"] += cantidad
-            elif doc.origen == ORIGEN_RECEPCION:
-                item["cantidad_recibida"] += cantidad
+        casilleros_demanda = defaultdict(list)
+        eans_solicitados = set()
 
-        salida = []
-        for item in grupos.values():
-            item["articulos"] = len(item["_eans"])
-            if item["_marcas"]:
-                item["marca"] = ", ".join(sorted(item["_marcas"]))
-            del item["_eans"]
-            del item["_marcas"]
-            salida.append(self._estado_documento(item))
-        return salida
+        # Parsear e inicializar horizontes temporales
+        for linea, doc, prov in lineas_def:
+            if not linea.ean:
+                continue
+            
+            ref_int = str(doc.ref_interna or "").upper()
+            fecha_promesa_base = doc.fecha_entrega_prevista or doc.fecha_documento
+            
+            # Identificación de Ventana de Tolerancia Abierta (Q)
+            es_quarter = False
+            fecha_limite_tolerancia = fecha_promesa_base
+            etiqueta_horizonte = fecha_promesa_base.strftime("%Y-%m")
 
-    def _estado_documento(self, item):
-        facturado = item["cantidad_facturada"]
-        notificado = item["cantidad_notificada"]
-        recibido = item["cantidad_recibida"]
-        pedido = item["cantidad_pedida"]
+            for q_idx in ["Q1", "Q2", "Q3", "Q4"]:
+                if q_idx in ref_int:
+                    es_quarter = True
+                    q_num = int(q_idx[1])
+                    year_target = fecha_promesa_base.year
+                    inicio_q, fin_q = self._get_quarter_bounds(year_target, q_num)
+                    fecha_limite_tolerancia = fin_q
+                    etiqueta_horizonte = f"{q_idx}/{year_target}"
+                    break
 
-        item["precio_promedio"] = item["importe_facturado"] / facturado if facturado else 0
-        item["cumplimiento"] = round((recibido / pedido * 100), 2) if pedido else None
+            # Si el usuario filtró por un mes específico, validamos si la fila pertenece a ese mes o a su Q
+            if mes:
+                filtro_target = datetime.strptime(f"{mes}-01", "%Y-%m-%d")
+                if es_quarter:
+                    # Si es un Q, entra si el mes filtrado pertenece al mismo rango del Q
+                    if not (inicio_q <= filtro_target <= fin_q):
+                        continue
+                else:
+                    if fecha_promesa_base.strftime("%Y-%m") != mes:
+                        continue
 
-        if not pedido:
-            item["estado"] = "PROPUESTA_NO_CARGADA"
-        elif pedido and recibido < pedido:
-            item["estado"] = "PENDIENTE_RECEPCION"
-        elif pedido and recibido > pedido:
-            item["estado"] = "SOBRE_ENTREGA"
-        elif pedido and notificado < pedido:
-            item["estado"] = "NOTIFICACION_PARCIAL"
-        elif pedido and recibido >= pedido:
-            item["estado"] = "OK"
-        else:
-            item["estado"] = "PENDIENTE"
-        return item
+            eans_solicitados.add(linea.ean)
+            casilleros_demanda[linea.ean].append({
+                "linea_id": linea.id,
+                "proveedor": prov.cod_prov if prov else "",
+                "marca": linea.marca or "",
+                "ean": linea.ean,
+                "codigo_articulo": linea.codigo_articulo,
+                "descripcion": linea.descripcion,
+                "talle": linea.talle or "",
+                "genero": linea.genero or "",
+                "horizonte": etiqueta_horizonte,
+                "es_quarter": es_quarter,
+                "fecha_limite": fecha_limite_tolerancia,
+                "cantidad_pedida": linea.cantidad,
+                "cantidad_recibida": Decimal("0.0000"),
+                "historial_ingresos": []
+            })
 
-    def _estado_linea(self, item):
-        if not item["cantidad_pedida"]:
-            item["estado"] = "PROPUESTA_NO_CARGADA"
-        elif item["cantidad_pedida"] and item["cantidad_recibida"] < item["cantidad_pedida"]:
-            item["estado"] = "FALTANTE_FISICO"
-        elif item["cantidad_pedida"] and item["cantidad_recibida"] > item["cantidad_pedida"]:
-            item["estado"] = "SOBRE_ENTREGA"
-        else:
-            item["estado"] = "OK"
-        return item
+        if not eans_solicitados:
+            return []
 
-    def _documento_to_dict(self, documento):
-        return {
-            "id": documento.id,
-            "origen": documento.origen,
-            "codigo_documento": documento.codigo_documento,
-            "documento_relacionado": documento.documento_relacionado,
-            "estado": documento.estado,
-        }
+        # Ordenar casilleros por fecha límite para mantener la prioridad FIFO
+        for ean in casilleros_demanda:
+            casilleros_demanda[ean].sort(key=lambda x: x["fecha_limite"])
 
-    def _documento_circuito_key(self, documento):
-        if documento.origen == ORIGEN_PEDIDO:
-            return documento.codigo_documento
-
-        linea = (
-            self.session.query(AuditoriaDocumentoLinea)
+        # 2. Extraer Recepciones (BLF) con un margen seguro hacia atrás (Look-back de 60 días)
+        query_blf = (
+            self.session.query(AuditoriaDocumentoLinea, AuditoriaDocumento)
+            .join(AuditoriaDocumento, AuditoriaDocumentoLinea.documento_id == AuditoriaDocumento.id)
             .filter(
-                AuditoriaDocumentoLinea.documento_id == documento.id,
-                AuditoriaDocumentoLinea.pieza_origen.isnot(None),
+                AuditoriaDocumento.origen == ORIGEN_RECEPCION,
+                AuditoriaDocumentoLinea.ean.in_(list(eans_solicitados))
             )
-            .first()
         )
-        return linea.pieza_origen if linea else documento.codigo_documento
+        if recepcion_souche == "__same__":
+            recepcion_souche = souche
+        if recepcion_souche:
+            query_blf = query_blf.filter(AuditoriaDocumento.cegid_souche == recepcion_souche)
+        query_blf = query_blf.order_by(AuditoriaDocumento.fecha_documento.asc())
+        
+        # 3. Distribución FIFO Dinámica
+        for linea_blf, doc_blf in query_blf.all():
+            ean_blf = linea_blf.ean
+            cantidad_disponible = linea_blf.cantidad
 
-    def _grupo_circuito_key(self, linea, doc):
-        if doc.origen in (ORIGEN_NOTIFICACION, ORIGEN_RECEPCION) and linea.pieza_origen:
-            return linea.pieza_origen
-        return doc.documento_relacionado or doc.codigo_documento
+            if ean_blf not in casilleros_demanda:
+                continue
 
-    def _month_bounds(self, mes):
-        inicio = datetime.strptime(f"{mes}-01", "%Y-%m-%d")
-        if inicio.month == 12:
-            fin = inicio.replace(year=inicio.year + 1, month=1)
-        else:
-            fin = inicio.replace(month=inicio.month + 1)
-        return inicio, fin
+            for casillero in casilleros_demanda[ean_blf]:
+                if cantidad_disponible <= 0:
+                    break
+
+                deuda = casillero["cantidad_pedida"] - casillero["cantidad_recibida"]
+                if deuda <= 0:
+                    continue
+
+                cantidad_a_asignar = min(cantidad_disponible, deuda)
+                casillero["cantidad_recibida"] += cantidad_a_asignar
+                cantidad_disponible -= cantidad_a_asignar
+
+                # Cálculo de desvío basado en mes calendario
+                desfase_meses = self._calcular_desfase_meses(doc_blf.fecha_documento, casillero["fecha_limite"])
+                
+                if desfase_meses == 0:
+                    sla_status = "A tiempo" if doc_blf.fecha_documento >= casillero["fecha_limite"].replace(day=1) else "Adelantado"
+                else:
+                    sla_status = f"Demorado (+{desfase_meses} mes/es)"
+
+                casillero["historial_ingresos"].append({
+                    "comprobante": doc_blf.codigo_documento.split("|")[2] if doc_blf.codigo_documento else "S/D",
+                    "fecha_ingreso": doc_blf.fecha_documento.strftime("%Y-%m-%d"),
+                    "cantidad_ingresada": float(cantidad_a_asignar),
+                    "dias_desvio": desfase_meses,
+                    "desvio_meses": desfase_meses,
+                    "etiqueta_tiempo": sla_status
+                })
+
+        # 4. Formatear reporte consolidado para la UI
+        resultados = []
+        for ean, lista_casilleros in casilleros_demanda.items():
+            for c in lista_casilleros:
+                pedida = c["cantidad_pedida"]
+                recibida = c["cantidad_recibida"]
+                
+                if recibida == 0:
+                    estado_final = "NO_RECIBIDO"
+                elif recibida < pedida:
+                    estado_final = "PARCIAL"
+                else:
+                    tuvo_demoras = any(ing.get("dias_desvio", ing.get("desvio_meses", 0)) > 0 for ing in c["historial_ingresos"])
+                    estado_final = "DEMORADO_COMPLETO" if tuvo_demoras else "OK_COMPLETO"
+
+                resultados.append({
+                    "id": c["linea_id"],
+                    "proveedor": c["proveedor"],
+                    "marca": c["marca"],
+                    "ean": c["ean"],
+                    "codigo_articulo": c["codigo_articulo"],
+                    "descripcion": c["descripcion"],
+                    "talle": c["talle"],
+                    "genero": c["genero"],
+                    "mes_planificado": c["horizonte"],
+                    "cantidad_pedida": float(pedida),
+                    "cantidad_recibida": float(recibida),
+                    "diferencia": float(recibida - pedida),
+                    "cumplimiento": round(float((recibida / pedida) * 100), 2) if pedida > 0 else 0.0,
+                    "estado": estado_final,
+                    "historial_detalle": c["historial_ingresos"]
+                })
+
+        return sorted(resultados, key=lambda x: (x["estado"], x["codigo_articulo"], x["talle"]))[:limit]

@@ -36,7 +36,7 @@ class CegidAuditoriaSource:
     def obtener_documentos(self, tipo_documento, desde=None, hasta=None, souche=None):
         tipos = self._normalizar_tipos(tipo_documento)
         if not tipos:
-            tipos = ["CF", "ALF", "BLF"]
+            tipos = ["DEF", "BLF"]
 
         placeholders = ",".join(["?"] * len(tipos))
         params = list(tipos)
@@ -71,8 +71,7 @@ class CegidAuditoriaSource:
                 GP_STATUTRECEPTION,
                 GP_STATUTPIECE
             FROM PIECE
-            WHERE LTRIM(RTRIM(CAST(GP_NATUREPIECEG AS VARCHAR(20)))) IN ({placeholders})
-            {filtros_fecha}
+            WHERE GP_NATUREPIECEG IN ({placeholders}) {filtros_fecha}
         """
         return self._fetch_dicts(query, params)
 
@@ -113,10 +112,10 @@ class CegidAuditoriaSource:
         """
         return self._fetch_dicts(query, [naturaleza, souche, numero, indice])
 
-    def obtener_lineas(self, tipo_documento, desde=None, hasta=None, souche=None):
+    def obtener_lineas(self, tipo_documento, desde=None, hasta=None, souche=None, eans=None):
         tipos = self._normalizar_tipos(tipo_documento)
         if not tipos:
-            tipos = ["CF", "ALF", "BLF"]
+            tipos = ["DEF", "BLF"]
 
         placeholders = ",".join(["?"] * len(tipos))
         params = list(tipos)
@@ -130,6 +129,12 @@ class CegidAuditoriaSource:
         if souche:
             filtros += " AND LTRIM(RTRIM(CAST(l.GL_SOUCHE AS VARCHAR(20)))) = ?"
             params.append(souche)
+        eans_limpios = [self._clean_value(ean) for ean in (eans or [])]
+        eans_limpios = [ean for ean in dict.fromkeys(eans_limpios) if ean]
+        if eans_limpios:
+            ean_placeholders = ",".join(["?"] * len(eans_limpios))
+            filtros += f" AND LTRIM(RTRIM(CAST(l.GL_REFARTBARRE AS VARCHAR(100)))) IN ({ean_placeholders})"
+            params.extend(eans_limpios)
 
         query = f"""
             SELECT
@@ -158,9 +163,7 @@ class CegidAuditoriaSource:
                 l.GL_LIBREART3,
                 NULL AS TALLE_CEGID
             FROM LIGNE l
-            WHERE LTRIM(RTRIM(CAST(l.GL_NATUREPIECEG AS VARCHAR(20)))) IN ({placeholders})
-              AND LTRIM(RTRIM(CAST(l.GL_TYPELIGNE AS VARCHAR(20)))) = 'ART'
-            {filtros}
+            WHERE l.GL_NATUREPIECEG IN ({placeholders}) AND l.GL_TYPELIGNE = 'ART' {filtros}
         """
         return self._fetch_dicts(query, params)
 

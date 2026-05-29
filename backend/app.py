@@ -91,26 +91,38 @@ def auditoria_resumen():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/auditoria/documentos', methods=['GET'])
+@app.route('/api/auditoria/documentos', methods=['GET','POST'])
 def auditoria_documentos():
-    try:
-        proveedor = request.args.get('proveedor') or None
-        estado = request.args.get('estado') or None
-        marca = request.args.get('marca') or None
-        mes = request.args.get('mes') or None
-        souche = request.args.get('souche') or None
-        limit = int(request.args.get('limit', 200))
-        data = auditoria_service.explorador(
-            proveedor=proveedor,
-            estado=estado,
-            marca=marca,
-            mes=mes,
-            souche=souche,
-            limit=limit,
-        )
-        return jsonify({"items": data}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    if request.method == 'POST':
+        try:
+            payload = request.get_json(force=True)
+            result = auditoria_service.registrar_documento(
+                proveedor_data=payload.get("proveedor", {}),
+                documento_data=payload.get("documento", {}),
+                lineas=payload.get("lineas", []),
+            )
+            return jsonify({"status": "success", **result}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        try:
+            proveedor = request.args.get('proveedor') or None
+            estado = request.args.get('estado') or None
+            marca = request.args.get('marca') or None
+            mes = request.args.get('mes') or None
+            souche = request.args.get('souche') or None
+            limit = int(request.args.get('limit', 200))
+            data = auditoria_service.explorador(
+                proveedor=proveedor,
+                estado=estado,
+                marca=marca,
+                mes=mes,
+                souche=souche,
+                limit=limit,
+            )
+            return jsonify({"items": data}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/auditoria/documentos/<int:documento_id>', methods=['GET'])
@@ -145,54 +157,49 @@ def auditoria_plan_vs_recepcion():
 
 
 @app.route('/api/auditoria/def/recepciones-posteriores', methods=['GET'])
-def auditoria_recepciones_posteriores_def():
+def auditoria_recepciones_posteriores():
     try:
-        proveedor = request.args.get('proveedor') or None
-        marca = request.args.get('marca') or None
-        mes = request.args.get('mes') or None
-        souche = request.args.get('souche') or None
+        # 1. Extraemos las variables que viajan desde el frontend de Streamlit
+        mes_target = request.args.get("mes")  # Viene en formato '2026-03'
+        souche = request.args.get("souche") or None
+        proveedor = request.args.get("proveedor") or None
+        marca = request.args.get("marca") or None
+
+        if not mes_target:
+            return jsonify({"error": "Falta el parámetro requerido 'mes' (YYYY-MM)"}), 400
+
+        # 2. CORRECCIÓN: Llamamos al nombre de función REAL que tenés en tu auditoria_service.py
         data = auditoria_service.recepciones_posteriores_def(
             proveedor=proveedor,
             marca=marca,
-            mes=mes,
-            souche=souche,
+            mes=mes_target,
+            souche=souche
         )
-        return jsonify({"items": data}), 200
+        
+        return jsonify({"status": "success", "items": data}), 200
     except Exception as e:
+        print(f"❌ ERROR EN ENDPOINT REZAGOS (Pestaña 3): {str(e)}")
         return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/auditoria/documentos', methods=['POST'])
-def auditoria_registrar_documento():
-    """
-    Endpoint interno para registrar documentos normalizados.
-    La ingesta real desde CEGID se conectara cuando definamos PIECE/LIGNE.
-    """
-    try:
-        payload = request.get_json(force=True)
-        result = auditoria_service.registrar_documento(
-            proveedor_data=payload.get("proveedor", {}),
-            documento_data=payload.get("documento", {}),
-            lineas=payload.get("lineas", []),
-        )
-        return jsonify({"status": "success", **result}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 
 @app.route('/api/auditoria/sync/cegid', methods=['POST'])
 def auditoria_sync_cegid():
     try:
         payload = request.get_json(silent=True) or {}
+        mes_target = payload.get("mes_target")
+        souche = payload.get("souche") or None
+        
+        if not mes_target:
+            return jsonify({"error": "Falta el parámetro requerido 'mes_target' (YYYY-MM)"}), 400
+
+        # Llamamos al nuevo servicio automatizado que calcula las ventanas de forma interna
         result = auditoria_service.sincronizar_circuito_cegid(
-            desde=payload.get("desde"),
-            hasta=payload.get("hasta"),
-            tipos=payload.get("tipos") or ["CF", "ALF", "BLF"],
-            souche=payload.get("souche") or None,
-            incluir_def=bool(payload.get("incluir_def", False)),
+            mes_target=mes_target,
+            souche=souche
         )
         return jsonify({"status": "success", **result}), 200
     except Exception as e:
+        # Esto te va a mostrar en la consola de Docker el error exacto si vuelve a fallar
+        print(f"❌ ERROR CRÍTICO EN SYNC: {str(e)}") 
         return jsonify({"error": str(e)}), 500
 
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')

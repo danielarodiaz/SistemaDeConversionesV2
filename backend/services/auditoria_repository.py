@@ -12,15 +12,14 @@ except ModuleNotFoundError:
         AuditoriaDocumentoLinea,
         AuditoriaProveedor,
     )
-
-
+ 
 def decimal_to_float(value):
     if value is None:
         return 0.0
+    # Mantenemos el objeto Decimal si viene de la DB para evitar micro-errores de redondeo
     if isinstance(value, Decimal):
-        return float(value)
+        return value  
     return value
-
 
 class AuditoriaRepository:
     def __init__(self, session):
