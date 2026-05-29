@@ -295,8 +295,13 @@ def _render_auditoria_logistica() -> None:
                 df_historial = pd.DataFrame(historial_consolidado)
                 df_historial = df_historial.sort_values(by=["talle", "fecha_ingreso"])
                 
+                # REFACTOR: Seleccionamos estrictamente las columnas esenciales eliminando la redundancia numérica
+                columnas_curva_limpia = [
+                    "talle", "comprobante", "fecha_ingreso", "cantidad_ingresada", "etiqueta_tiempo"
+                ]
+                
                 st.dataframe(
-                    df_historial,
+                    df_historial[columnas_curva_limpia],
                     width="stretch",
                     hide_index=True,
                     column_config={
@@ -304,7 +309,7 @@ def _render_auditoria_logistica() -> None:
                         "comprobante": st.column_config.TextColumn("Remito (BLF)"),
                         "fecha_ingreso": st.column_config.TextColumn("Fecha Entrada"),
                         "cantidad_ingresada": st.column_config.NumberColumn("Cantidad Recibida", format="%d u."),
-                        "dias_desvio": st.column_config.NumberColumn("Desfase (Meses)"),
+                        # "dias_desvio": st.column_config.NumberColumn("Desfase (Meses)"),
                         "etiqueta_tiempo": st.column_config.TextColumn("Estado SLA")
                     }
                 )
