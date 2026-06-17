@@ -37,6 +37,7 @@ DB_PASS = os.getenv("DB_PASSWORD", "")
 DB_HOST = os.getenv("DB_HOST", "DB2\\SQLEXPRESS" if _IS_SERVER else "127.0.0.1")
 DB_PORT = os.getenv("DB_PORT", "1433")
 DB_NAME = os.getenv("DB_NAME", "Conversor_DB")
+DB_ENCRYPT = os.getenv("DB_ENCRYPT", "no")
 
 print(f"[DB] Hostname: {_HOSTNAME} | Auth: {DB_AUTH_TYPE} | Host: {DB_HOST} | DB: {DB_NAME}")
 
@@ -54,13 +55,14 @@ def get_connection_string(for_pyodbc=False, target_db="master"):
         if for_pyodbc:
             return (
                 f"DRIVER={driver};SERVER={DB_HOST};DATABASE={target_db};"
-                "Trusted_Connection=yes;TrustServerCertificate=yes"
+                f"Trusted_Connection=yes;Encrypt={DB_ENCRYPT};TrustServerCertificate=yes"
             )
         else:
             return (
                 f"mssql+pyodbc://{DB_HOST}/{target_db}"
                 "?driver=ODBC+Driver+17+for+SQL+Server"
                 "&trusted_connection=yes"
+                f"&Encrypt={DB_ENCRYPT}"
                 "&TrustServerCertificate=yes"
             )
     else:
@@ -69,12 +71,13 @@ def get_connection_string(for_pyodbc=False, target_db="master"):
             return (
                 f"DRIVER={driver};SERVER={DB_HOST},{DB_PORT};"
                 f"UID={DB_USER};PWD={DB_PASS};DATABASE={target_db};"
-                "TrustServerCertificate=yes"
+                f"Encrypt={DB_ENCRYPT};TrustServerCertificate=yes"
             )
         else:
             return (
                 f"mssql+pyodbc://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{target_db}"
                 "?driver=ODBC+Driver+17+for+SQL+Server"
+                f"&Encrypt={DB_ENCRYPT}"
                 "&TrustServerCertificate=yes"
             )
 

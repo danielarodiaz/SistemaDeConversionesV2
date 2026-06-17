@@ -3,6 +3,7 @@ Carga los CSV de data_migration a las tablas definidas en models.py.
 """
 import io
 import logging
+import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from database import SessionLocal
 from models import (
     Articulo,
     ArticuloComplementario,
+    Proveedor,
     TalleMaestro,
     año,
     canal,
@@ -41,7 +43,8 @@ from models import (
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent
-CSV_ENCODINGS = ("cp1252", "latin-1", "utf-8-sig", "utf-8")
+CSV_ENCODINGS = ("utf-8-sig", "utf-8", "cp1252", "latin-1")
+MOJIBAKE_RE = re.compile(r"(?:Ã.|Â.|â..|�)")
 
 
 def _is_phpmyadmin_export(raw_text: str) -> bool:
@@ -61,6 +64,21 @@ def _normalize_phpmyadmin_line(line: str) -> str | None:
     return line.replace('""', '"')
 
 
+def _repair_mojibake(value: str) -> str:
+    """Corrige texto UTF-8 que fue interpretado como cp1252/latin-1."""
+    if not MOJIBAKE_RE.search(value):
+        return value
+
+    candidates = [value]
+    for source_encoding in ("cp1252", "latin-1"):
+        try:
+            candidates.append(value.encode(source_encoding).decode("utf-8"))
+        except UnicodeError:
+            continue
+
+    return min(candidates, key=lambda candidate: len(MOJIBAKE_RE.findall(candidate)))
+
+
 def _read_csv(filename: str) -> pd.DataFrame:
     path = DATA_DIR / filename
     if not path.exists():
@@ -68,7 +86,6 @@ def _read_csv(filename: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     # Data Engineering Tip: Priorizamos UTF-8 para evitar falsos positivos de doble decodificación
-    ENCODINGS_ORDENADOS = ("utf-8-sig", "utf-8", "latin-1", "cp1252")
     read_kwargs = {
         "dtype": str, 
         "keep_default_na": False, 
@@ -77,17 +94,9 @@ def _read_csv(filename: str) -> pd.DataFrame:
     }
 
     last_error = None
-    for encoding in ENCODINGS_ORDENADOS:
+    for encoding in CSV_ENCODINGS:
         try:
             raw_text = path.read_text(encoding=encoding)
-            
-            # Sanatización masiva en memoria antes del parseo
-            # Si el archivo fue guardado con doble encoding, acá lo curamos directo en el buffer
-            raw_text = raw_text.replace("Ã‘", "Ñ")
-            raw_text = raw_text.replace("Ã‘O", "ÑO")
-            raw_text = raw_text.replace("Ã±", "ñ")
-            raw_text = raw_text.replace("", "Ñ") # Captura el rombo residual por seguridad
-            
         except UnicodeDecodeError as exc:
             last_error = exc
             continue
@@ -131,7 +140,7 @@ def _clean(value):
     text_value = str(value).strip()
     if text_value.lower() in {"", "nan", "none", "null"}:
         return None
-    return text_value
+    return _repair_mojibake(text_value)
 
 
 def _to_int(value):
@@ -312,6 +321,52 @@ def _resolve_marca_id(codigo_o_nombre, lookup):
         return marca_id
 
     return lookup.get(clave.upper())
+
+
+def seed_proveedores(session):
+    logger.info("Cargando proveedores...")
+
+    df = _read_csv("proveedor.csv")
+    if df.empty:
+        logger.info("  proveedor.csv: sin datos, se omite.")
+        return 0
+
+    inserted = 0
+    seen_codigos = set()
+    _set_identity_insert(session, Proveedor.__tablename__, True)
+    try:
+        for _, row in df.iterrows():
+            row_id = _to_int(row.get("id"))
+            nombre = _clean(row.get("nombre"))
+            if row_id is None or not nombre:
+                continue
+
+            nombre_key = nombre.upper()
+            if nombre_key in seen_codigos:
+                continue
+            seen_codigos.add(nombre_key)
+
+            if session.get(Proveedor, row_id):
+                continue
+
+            existing = session.query(Proveedor).filter_by(cod_prov=nombre).first()
+            if existing:
+                continue
+
+            session.add(Proveedor(
+                id=row_id,
+                cod_prov=nombre,
+                razon_social=nombre,
+                tipo="MERCADERIA",
+            ))
+            inserted += 1
+
+        session.flush()
+    finally:
+        _set_identity_insert(session, Proveedor.__tablename__, False)
+
+    logger.info("  proveedor.csv: %d registros insertados.", inserted)
+    return inserted
 
 
 def seed_marcas_y_markups(session):
@@ -573,6 +628,7 @@ def seed_csv_data(session=None):
     db = session or SessionLocal()
 
     try:
+        seed_proveedores(db)
         seed_catalogos(db)
         seed_marcas_y_markups(db)
         seed_talles(db)
