@@ -77,7 +77,7 @@ class AuditoriaProveedor(Base):
     cod_prov = Column(String(50), index=True, nullable=False)
     razon_social = Column(String(255))
     marca = Column(String(100), index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
 
     documentos = relationship("AuditoriaDocumento", back_populates="proveedor")
 
@@ -108,7 +108,7 @@ class AuditoriaDocumento(Base):
     total_cantidad = Column(Numeric(18, 4), default=0)
     total_importe = Column(Numeric(18, 4), default=0)
     metadata_json = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     proveedor = relationship("AuditoriaProveedor", back_populates="documentos")
@@ -144,7 +144,7 @@ class AuditoriaDocumentoLinea(Base):
     linea_precedente_key = Column(String(150), index=True)
     linea_origen_key = Column(String(150), index=True)
     metadata_json = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
 
     documento = relationship("AuditoriaDocumento", back_populates="lineas")
 
@@ -166,4 +166,256 @@ class AuditoriaMatch(Base):
     regla = Column(String(100))
     confianza = Column(Numeric(5, 2))
     observacion = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+#Tablas de ABM articulos  
+class año(Base):
+    __tablename__ = 'años'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoAnio = Column(String(20), index=True)
+    descripcionAño = Column(String(20), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class canal(Base):
+    __tablename__ = 'canales'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoCanal = Column(String(50), index=True)
+    descripcionCanal = Column(String(255), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class capsula(Base):
+    __tablename__ = 'capsulas'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoCapsula = Column(String(30), index=True)
+    descripcionCapsula = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class color(Base):
+    __tablename__ = 'colores'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoColor = Column(String(50), index=True)
+    descripcionColor = Column(String(255), index=True)
+    valor = Column(String(50), index=True)
+    descripcionValor = Column(String(255), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
+class division(Base):
+    __tablename__ = 'divisiones'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoDivision = Column(String(50), index=True)
+    descripcionDivision = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class edad(Base):
+    __tablename__ = 'edades'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoEdad = Column(String(50), index=True)
+    descripcionEdad = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class genero(Base):
+    __tablename__ = 'generos'
+    id = Column(Integer, primary_key=True)
+    codigoGenero = Column(String(50), index=True)
+    descripcionGenero = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class marca(Base):
+    __tablename__ = 'marcas'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoMarca = Column(String(50), index=True)
+    descripcionMarca = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
+class markup(Base):
+    __tablename__ = 'markups'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    marca_id = Column(Integer, ForeignKey('marcas.id'), nullable=False)
+    tipoProducto = Column(String(50), index=True) #calzado, todo, indumentaria, accesorios,etc
+    markup = Column(Numeric(18, 4), default=0)
+    
+class material(Base):
+    __tablename__ = 'materiales'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoMaterial = Column(String(50), index=True)
+    descripcionMaterial = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class objetivoGeneral(Base):
+    __tablename__ = 'objetivoGeneral'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoObjetivoGeneral = Column(String(50), index=True)
+    descripcionObjetivoGeneral = Column(String(50), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class precioCompra(Base): #Esta tabla se genera mientras se va creando los articulos
+    __tablename__ = 'preciosCompra'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoArticulo = Column(String(50), index=True)
+    precioCompra = Column(Numeric(18, 4), default=0)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
+class precioVenta(Base): #Esta tabla se genera mientras se va creando los articulos
+    __tablename__ = 'preciosVenta'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoArticulo = Column(String(50), index=True)
+    precioVenta = Column(Numeric(18, 4), default=0)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
+class promo(Base):
+    __tablename__ = 'promos'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoPromo = Column(String(50), index=True)
+    descripcionPromo = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
+class sap(Base):
+    __tablename__ = 'grupoSap'
+    id = Column(Integer, primary_key=True)
+    codigoGrupoSap = Column(String(50), index=True)
+    descripcionGrupoSap = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
+class segmentacionMarathon(Base):
+    __tablename__ = 'segmentacionMarathon'
+    id = Column(Integer, primary_key=True)
+    codigoSegmentacionMarathon = Column(String(50), index=True)
+    descripcionSegmentacionMarathon = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
+class segmentacionProveedor(Base):
+    __tablename__ = 'segmentacionProveedor'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoSegmentacionProveedor = Column(String(50), index=True)
+    descripcionSegmentacionProveedor = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class silueta(Base):
+    __tablename__ = 'silueta'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoSilueta = Column(String(50), index=True)
+    descripcionSilueta = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class Articulo(Base):
+    __tablename__ = 'articulos'
+
+    # 0. id original de la base de datos
+    id = Column(Integer, primary_key=True, autoincrement=False)
+    
+    # 1 - 5
+    codigo = Column(String(50), index=True, nullable=False)
+    descripcion = Column(String(255))
+    tipoProducto = Column(String(50))
+    descripcionProducto = Column(String(255))
+    grupoSAP = Column(String(50))
+    
+    # 6 - 10
+    descripcionGrupoSAP = Column(String(255))
+    marca = Column(String(50), index=True)
+    descripcionMarca = Column(String(255))
+    genero = Column(String(50))
+    descripcionGenero = Column(String(255))
+    
+    # 11 - 15
+    silueta = Column(String(50))
+    descripcionSilueta = Column(String(255))
+    uso = Column(String(50))
+    descripcionUso = Column(String(255))
+    codigoBarra = Column(String(50), index=True) # EAN / UPC
+    
+    # 16 - 20
+    talle = Column(String(50))
+    descripcionTalle = Column(String(255))
+    valorTalle = Column(String(50))
+    descripcionValorTalle = Column(String(255))
+    color = Column(String(50))
+    
+    # 21 - 25
+    descripcionColor = Column(String(255))
+    valor = Column(String(50))
+    descripcionValor = Column(String(255))
+    nombreProveedor = Column(String(255), index=True)
+    codigoMedida = Column(String(50))
+    
+    # 26 - 30
+    tipoMedida = Column(String(100))
+    medida = Column(String(50))
+    codigoGen = Column(String(50))
+    genero2 = Column(String(50))
+    canal = Column(String(50))
+    
+    # 31 - 35
+    codigoCapsula = Column(String(50))
+    descripcionCapsula = Column(String(255))
+    codigoDivision = Column(String(50))
+    descripcionDivision = Column(String(255))
+    codigoTemporada = Column(String(50))
+    
+    # 36 - 38
+    descripcionTemporada = Column(String(255))
+    grupo = Column(String(50))
+    descripciongrupo = Column(String(255))
+    
+    # Control interno de base de datos
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
+class ArticuloComplementario(Base):
+    __tablename__ = 'articulosComplementarios'
+    id = Column(Integer, primary_key=True)
+    codigo = Column(String(50), index=True)
+    codigoEdad = Column(String(50), index=True)
+    codigoMaterial = Column(String(50), index=True)
+    codigoSegmentacionProveedor = Column(String(50), index=True)
+    codigoSegmentacionMarathon = Column(String(50), index=True)
+    codigoVidriera = Column(String(50), index=True)
+    codigoAnio = Column(String(50), index=True)
+    codigoBarra = Column(String(50), index=True)
+    codigoCruzar = Column(String(50), index=True)
+    objetivoGeneral = Column(String(50), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class TalleMaestro(Base):
+    __tablename__ = 'talles'
+
+    id = Column(Integer, primary_key=True, autoincrement=False) # Mantenemos el ID viejo para no romper relaciones históricas
+    codigoBarra = Column(String(50), nullable=True)
+    codigoTalle = Column(String(50), nullable=True, index=True) # ej: 'A01', 'UNI'. Agregamos índice para búsquedas rápidas
+    descripcionTalle = Column(String(150), nullable=True)
+    valorTalle = Column(String(50), nullable=True) # ej: 'S', 'M', 'L'
+    descripcionValorTalle = Column(String(150), nullable=True)
+    codigoMedida = Column(String(50), nullable=True)
+    tipoMedida = Column(String(100), nullable=True)
+    medida = Column(String(50), nullable=True)
+    codigoGen = Column(String(20), nullable=True)
+    genero = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class temporada(Base):
+    __tablename__ = 'temporadas'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoTemporada = Column(String(50), index=True)
+    descripcionTemporada = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
+class tipoProducto(Base):
+    __tablename__ = 'tipoProductos'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoTipoProducto = Column(String(50), index=True)
+    descripcionTipoProducto = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class uso(Base):
+    __tablename__ = 'usos'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoUso = Column(String(50), index=True)
+    descripcionUso = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class vidriera(Base):
+    __tablename__ = 'vidriera'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    codigoVidriera = Column(String(50), index=True)
+    descripcionVidriera = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    
