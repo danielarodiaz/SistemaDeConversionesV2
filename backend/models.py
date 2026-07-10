@@ -168,6 +168,23 @@ class AuditoriaMatch(Base):
     observacion = Column(Text)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
+
+class SyncNovedadesProveedorMatch(Base):
+    __tablename__ = 'sync_novedades_proveedor_matches'
+    __table_args__ = (
+        UniqueConstraint('origen_normalizado', 'proveedor_id', name='uq_sync_novedades_origen_proveedor'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    origen_original = Column(String(255), nullable=False, index=True)
+    origen_normalizado = Column(String(255), nullable=False, index=True)
+    proveedor_id = Column(Integer, ForeignKey('proveedores.id'), nullable=False, index=True)
+    cod_prov = Column(String(50), nullable=False, index=True)
+    razon_social = Column(String(255))
+    score = Column(Numeric(5, 2), nullable=False)
+    metodo = Column(String(20), default='FUZZY', nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
 #Tablas de ABM articulos  
 class año(Base):
     __tablename__ = 'años'
@@ -418,4 +435,3 @@ class vidriera(Base):
     codigoVidriera = Column(String(50), index=True)
     descripcionVidriera = Column(String(30), index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
-    

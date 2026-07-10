@@ -64,6 +64,12 @@ try:
 except ModuleNotFoundError:
     _SEVILLANITA_DISPONIBLE = False
     print("⚠️  sevillanitaV2_processor no disponible: falta el módulo 'data.ocr_database'.")
+try:
+    from backend.scripts.procesos_especiales.sync_novedades.main import run_sync as run_sync_novedades
+    _SYNC_NOVEDADES_DISPONIBLE = True
+except ModuleNotFoundError as e:
+    _SYNC_NOVEDADES_DISPONIBLE = False
+    print(f"Sync NOVEDADES no disponible: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -201,6 +207,25 @@ def auditoria_sync_cegid():
         # Esto te va a mostrar en la consola de Docker el error exacto si vuelve a fallar
         print(f"❌ ERROR CRÍTICO EN SYNC: {str(e)}") 
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/procesos-especiales/sync-novedades', methods=['POST'])
+def procesos_especiales_sync_novedades():
+    if not _SYNC_NOVEDADES_DISPONIBLE:
+        return jsonify({"error": "Sync NOVEDADES no disponible en este entorno"}), 503
+    try:
+        payload = request.get_json(silent=True) or {}
+        result = run_sync_novedades(
+            dry_run=bool(payload.get("dry_run", True)),
+            excel_path=payload.get("excel_path") or None,
+            send_email=bool(payload.get("send_email", False)),
+        )
+        return jsonify({"status": "success", **result}), 200
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"error": str(e), "type": type(e).__name__}), 500
 
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')

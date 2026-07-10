@@ -94,7 +94,13 @@ def _api_get(path: str, params=None) -> dict:
 
 def _api_post(path: str, payload=None) -> dict:
     res = requests.post(f"{BACKEND_URL}{path}", json=payload or {}, headers=NGROK_HEADERS, timeout=300)
-    res.raise_for_status()
+    if res.status_code >= 400:
+        try:
+            detail = res.json()
+            message = detail.get("error") or res.text
+        except Exception:
+            message = res.text
+        raise RuntimeError(f"{res.status_code} {res.reason}: {message}")
     return res.json()
 
 
@@ -477,9 +483,63 @@ def _render_provider_card(id_p: str, info: dict) -> None:
                         st.error(f"Error de conexión: {e}")
 
 
+def _render_sync_novedades_panel() -> None:
+    with st.container(border=True):
+        st.subheader("Sync NOVEDADES - Logistica", divider="blue")
+        c1, c2 = st.columns([3, 1])
+        excel_path = c1.text_input(
+            "Excel exportado opcional",
+            placeholder=r"C:\ruta\ListadoDespachados.xlsx",
+            help="Si se deja vacio, el backend intenta extraerlo desde la app interna con Playwright.",
+        ).strip()
+        dry_run = c2.toggle("Dry-run", value=True, help="Simula la corrida sin escribir en Google Sheets.")
+
+        if st.button("Ejecutar sync NOVEDADES", type="primary", width="stretch"):
+            with st.spinner("Sincronizando NOVEDADES..."):
+                try:
+                    result = _api_post(
+                        "/api/procesos-especiales/sync-novedades",
+                        {
+                            "dry_run": dry_run,
+                            "excel_path": excel_path or None,
+                        },
+                    )
+                    st.success(
+                        f"Corrida finalizada: {result.get('matched_rows', 0)} matches, "
+                        f"{result.get('completed_ok', 0)} filas OK, {len(result.get('conflicts', []))} conflictos."
+                    )
+                    with st.expander("Resumen tecnico", expanded=True):
+                        st.text(result.get("summary", ""))
+                    if result.get("updates"):
+                        title = "Celdas que se escribirian" if dry_run else "Celdas actualizadas"
+                        st.info(f"{title}: {len(result['updates'])}")
+                        st.dataframe(pd.DataFrame(result["updates"]), width="stretch")
+                    if result.get("unresolved_providers"):
+                        st.warning("Hay proveedores sin resolver.")
+                        st.dataframe(pd.DataFrame(result["unresolved_providers"]), width="stretch")
+                    if result.get("conflicts"):
+                        st.warning("Hay datos previos distintos no sobreescritos.")
+                        st.dataframe(pd.DataFrame(result["conflicts"]), width="stretch")
+                    if result.get("inconsistencies"):
+                        st.warning("Hay inconsistencias de cruce.")
+                        st.dataframe(pd.DataFrame(result["inconsistencies"]), width="stretch")
+                    if result.get("fuzzy_matches"):
+                        st.info("Matches fuzzy auditados para revision.")
+                        st.dataframe(pd.DataFrame(result["fuzzy_matches"]), width="stretch")
+                    if result.get("technical_errors"):
+                        st.error("Hubo errores tecnicos.")
+                        st.dataframe(pd.DataFrame({"error": result["technical_errors"]}), width="stretch")
+                except Exception as e:
+                    st.error(f"No se pudo ejecutar la sincronizacion: {e}")
+
+
 if menu == "Auditoria Logistica":
     _render_auditoria_logistica()
 else:
+    if menu == "Procesos Especiales":
+        _render_sync_novedades_panel()
+        st.divider()
+
     # ── Grid de proveedores ───────────────────────────────────────────────────────
     items = {k: v for k, v in PROVIDERS.items() if v["cat"] == menu}
     cols = st.columns(3)

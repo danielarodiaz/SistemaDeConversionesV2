@@ -32,6 +32,11 @@ uploads/
 backend/uploads/
 outputs/
 backend/outputs/
+backend/automatizacionessheets-d4b93f86c4da.json
+backend/*service*account*.json
+backend/*credentials*.json
+backend/*sheets*.json
+node_modules/
 
 # ---- Archivos generados por el sistema -------------------------
 *.log
