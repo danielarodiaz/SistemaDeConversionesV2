@@ -60,7 +60,7 @@ def process_topper_pedido_proveedor(txt_file_path, csv_file_path):
             datos_procesados.append([
                 'ZCOC1_', referencia_actual, fecha_actual, 'ALSAI',
                 codigo_barras, cantidad, precio, '240001',
-                establecimiento_actual, 12,
+                establecimiento_actual, 14,
             ])
             items_para_auditar.append(armar_item_auditoria(
                 barras=codigo_barras,
