@@ -214,11 +214,27 @@ def procesos_especiales_sync_novedades():
     if not _SYNC_NOVEDADES_DISPONIBLE:
         return jsonify({"error": "Sync NOVEDADES no disponible en este entorno"}), 503
     try:
-        payload = request.get_json(silent=True) or {}
+        uploaded_file = request.files.get("file")
+        if uploaded_file:
+            _, uploaded_ext = os.path.splitext(uploaded_file.filename)
+            if uploaded_ext.lower() not in {".xlsx", ".xls"}:
+                return jsonify({"error": "El tipo de archivo no es el esperado. Por favor, subí un archivo Excel."}), 400
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = secure_filename(f"SYNC_NOVEDADES_{ts}_{uploaded_file.filename}")
+            excel_path = os.path.join(UPLOAD_FOLDER, filename)
+            uploaded_file.save(excel_path)
+            dry_run = str(request.form.get("dry_run", "true")).lower() in {"1", "true", "yes", "si"}
+            send_email = str(request.form.get("send_email", "false")).lower() in {"1", "true", "yes", "si"}
+        else:
+            payload = request.get_json(silent=True) or {}
+            excel_path = payload.get("excel_path") or None
+            dry_run = bool(payload.get("dry_run", True))
+            send_email = bool(payload.get("send_email", False))
+
         result = run_sync_novedades(
-            dry_run=bool(payload.get("dry_run", True)),
-            excel_path=payload.get("excel_path") or None,
-            send_email=bool(payload.get("send_email", False)),
+            dry_run=dry_run,
+            excel_path=excel_path,
+            send_email=send_email,
         )
         return jsonify({"status": "success", **result}), 200
     except Exception as e:

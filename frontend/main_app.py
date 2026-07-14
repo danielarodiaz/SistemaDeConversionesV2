@@ -104,6 +104,24 @@ def _api_post(path: str, payload=None) -> dict:
     return res.json()
 
 
+def _api_post_file(path: str, file, data=None) -> dict:
+    res = requests.post(
+        f"{BACKEND_URL}{path}",
+        files={"file": (file.name, file.getvalue())},
+        data=data or {},
+        headers=NGROK_HEADERS,
+        timeout=300,
+    )
+    if res.status_code >= 400:
+        try:
+            detail = res.json()
+            message = detail.get("error") or res.text
+        except Exception:
+            message = res.text
+        raise RuntimeError(f"{res.status_code} {res.reason}: {message}")
+    return res.json()
+
+
 def _render_auditoria_logistica() -> None:
     st.subheader("Control de Cumplimiento Logístico")
 
@@ -461,7 +479,7 @@ def _render_provider_card(id_p: str, info: dict) -> None:
         with st.expander(f"Utilizar {info['name']}"):
             st.caption(f"Tipo de archivo: {info['ext']}")
             file = st.file_uploader(
-                "Seleccionar archivo",
+                "⬆️ Seleccionar archivo",
                 key=id_p,
                 label_visibility="collapsed",
             )
@@ -487,22 +505,24 @@ def _render_sync_novedades_panel() -> None:
     with st.container(border=True):
         st.subheader("Sync NOVEDADES - Logistica", divider="blue")
         c1, c2 = st.columns([3, 1])
-        excel_path = c1.text_input(
-            "Excel exportado opcional",
-            placeholder=r"C:\ruta\ListadoDespachados.xlsx",
-            help="Si se deja vacio, el backend intenta extraerlo desde la app interna con Playwright.",
-        ).strip()
+        novedades_file = c1.file_uploader(
+            "Seleccionar archivo",
+            type=["xlsx", "xls"],
+            key="sync_novedades_file",
+            label_visibility="collapsed",
+        )
         dry_run = c2.toggle("Dry-run", value=True, help="Simula la corrida sin escribir en Google Sheets.")
 
         if st.button("Ejecutar sync NOVEDADES", type="primary", width="stretch"):
+            if not novedades_file:
+                st.warning("Seleccioná el Excel exportado de la app logística para continuar.")
+                return
             with st.spinner("Sincronizando NOVEDADES..."):
                 try:
-                    result = _api_post(
+                    result = _api_post_file(
                         "/api/procesos-especiales/sync-novedades",
-                        {
-                            "dry_run": dry_run,
-                            "excel_path": excel_path or None,
-                        },
+                        novedades_file,
+                        data={"dry_run": str(dry_run).lower()},
                     )
                     st.success(
                         f"Corrida finalizada: {result.get('matched_rows', 0)} matches, "
