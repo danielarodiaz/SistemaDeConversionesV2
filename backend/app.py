@@ -1,5 +1,6 @@
 import os
 import sys
+import zipfile
 
 # ── Path setup: debe ir PRIMERO para que todos los imports de backend.* funcionen
 # tanto al ejecutar como script (py backend/app.py) como al importar como módulo.
@@ -346,10 +347,15 @@ def process_file(provider_id):
             "conflictos_suc": [],
             "alertas_sucursales": [],
             "avisos_sucursales": [],
+            "avisos_generales": [],
         }
         has_audit = False
+        message = None
+        archivos_extra = []
 
         if isinstance(result, dict):
+            message = result.get('mensaje')
+            archivos_extra = result.get('archivos_extra') or []
             tiene_alertas = (
                 result.get('faltantes')
                 or result.get('cambios_precio')
@@ -357,6 +363,8 @@ def process_file(provider_id):
                 or result.get('conflictos_suc')
                 or result.get('alertas_sucursales')
                 or result.get('avisos_sucursales')
+                or result.get('avisos_generales')
+                or result.get('mensaje')
             )
             if tiene_alertas:
                 audit_report = result
@@ -374,7 +382,33 @@ def process_file(provider_id):
                 output_folder=OUTPUT_FOLDER,
                 ts=ts,
             )
+            if archivos_extra:
+                with zipfile.ZipFile(zip_path, 'a', zipfile.ZIP_DEFLATED) as zf:
+                    for extra_path in archivos_extra:
+                        if os.path.exists(extra_path):
+                            zf.write(extra_path, os.path.basename(extra_path))
+                            os.remove(extra_path)
             output_filename = os.path.basename(zip_path)
+        elif archivos_extra and os.path.exists(output_path):
+            proveedor_slug = provider_id.upper()
+            base = f"{proveedor_slug}_{ts}"
+            import_filename = f"{base}_IMPORTACION.csv"
+            import_path = os.path.join(OUTPUT_FOLDER, import_filename)
+            os.rename(output_path, import_path)
+
+            zip_filename = f"{base}.zip"
+            zip_path = os.path.join(OUTPUT_FOLDER, zip_filename)
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                zf.write(import_path, import_filename)
+                for extra_path in archivos_extra:
+                    if os.path.exists(extra_path):
+                        zf.write(extra_path, os.path.basename(extra_path))
+
+            for cleanup_path in [import_path, *archivos_extra]:
+                if os.path.exists(cleanup_path):
+                    os.remove(cleanup_path)
+
+            output_filename = zip_filename
 
         backend_url = os.getenv('BACKEND_URL', 'http://localhost:5000')
         return jsonify({
@@ -383,6 +417,7 @@ def process_file(provider_id):
             "download_url": f"{backend_url}/api/download/{output_filename}",
             "audit": audit_report,
             "has_audit": has_audit,
+            "message": message,
         }), 200
 
     except Exception as e:

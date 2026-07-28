@@ -386,6 +386,9 @@ def _render_audit_results(data: dict) -> None:
 
     st.toast("¡Archivo procesado!", icon="✅")
 
+    if data.get("message"):
+        st.info(data["message"])
+
     if has_audit:
         # Faltantes en CEGID
         if audit.get('faltantes'):
@@ -452,6 +455,10 @@ def _render_audit_results(data: dict) -> None:
             st.dataframe(df_avisos, width="stretch")
 
     # Botón de descarga (común a todos)
+    for aviso in audit.get("avisos_generales", []):
+        if aviso != data.get("message"):
+            st.info(aviso)
+
     download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
     if download_res.status_code == 200:
         filename = data["filename"]
