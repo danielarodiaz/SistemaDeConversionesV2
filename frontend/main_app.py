@@ -459,6 +459,37 @@ def _render_audit_results(data: dict) -> None:
         if aviso != data.get("message"):
             st.info(aviso)
 
+    sevillanita = audit.get("sevillanita", {})
+    if sevillanita:
+        resumen = sevillanita.get("resumen", {})
+        st.warning(
+            "Alertas Sevillanita: "
+            f"{resumen.get('sin_match', 0)} sin match, "
+            f"{resumen.get('mas_1000kg', 0)} con +1000kg, "
+            f"{resumen.get('sin_valor_declarado', 0)} sin valor declarado, "
+            f"{resumen.get('diferencias_importe', 0)} con diferencias de importe."
+        )
+        filas = sevillanita.get("filas", [])
+        if filas:
+            df_sevillanita = pd.DataFrame(filas)
+            motivos = sorted({
+                motivo.strip()
+                for value in df_sevillanita.get("ALERTA/MOTIVO", pd.Series(dtype=str)).fillna("")
+                for motivo in str(value).split(",")
+                if motivo.strip()
+            })
+            seleccion = st.multiselect(
+                "Filtrar alertas Sevillanita",
+                motivos,
+                key="sevillanita_alertas_filter",
+            )
+            if seleccion:
+                mask = df_sevillanita["ALERTA/MOTIVO"].fillna("").apply(
+                    lambda value: any(motivo in str(value) for motivo in seleccion)
+                )
+                df_sevillanita = df_sevillanita[mask]
+            st.dataframe(df_sevillanita, width="stretch")
+
     download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
     if download_res.status_code == 200:
         filename = data["filename"]
@@ -482,6 +513,41 @@ def _render_provider_card(id_p: str, info: dict) -> None:
     with st.container(border=True):
         st.image(get_img(info["logo"]), width='stretch')
         st.subheader(info["name"], divider="blue")
+
+        if id_p == "sevillanita":
+            with st.expander(f"Utilizar {info['name']}"):
+                st.caption("Tipo de archivo: dos .xlsx")
+                files = st.file_uploader(
+                    "Seleccionar archivos",
+                    type=["xlsx"],
+                    accept_multiple_files=True,
+                    key=id_p,
+                    label_visibility="collapsed",
+                )
+                st.caption("Subí el archivo de despachos y el Excel de facturación Sevillanita.")
+
+            if files and st.button(f"Procesar {info['name']}", key=f"btn_{id_p}", type="primary", width="stretch"):
+                if len(files) != 2:
+                    st.warning("Seleccioná exactamente dos archivos .xlsx para Sevillanita.")
+                    return
+                with st.spinner("Trabajando..."):
+                    try:
+                        upload_files = [
+                            ("files", (uploaded.name, uploaded.getvalue()))
+                            for uploaded in files
+                        ]
+                        res = requests.post(
+                            f"{BACKEND_URL}/api/process/{id_p}",
+                            files=upload_files,
+                            headers=NGROK_HEADERS,
+                        )
+                        if res.status_code == 200:
+                            _render_audit_results(res.json())
+                        else:
+                            st.error(f"Error: {res.text}")
+                    except Exception as e:
+                        st.error(f"Error de conexión: {e}")
+            return
 
         with st.expander(f"Utilizar {info['name']}"):
             st.caption(f"Tipo de archivo: {info['ext']}")
