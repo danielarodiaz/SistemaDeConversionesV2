@@ -144,6 +144,40 @@ def _format_importe(value):
     return round(float(value), 2)
 
 
+def _format_decimal_reporte(value):
+    if value is None or value == "":
+        return ""
+    return f"{round(float(value), 2):.2f}".replace(".", ",")
+
+
+def _format_fecha_reporte(value):
+    if _is_blank(value):
+        return ""
+    text = str(value).strip()
+
+    iso_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})(?:\s+.*)?$", text)
+    if iso_match:
+        year, month, day = iso_match.groups()
+        return f"{day}-{month}-{year}"
+
+    parsed = pd.to_datetime(value, dayfirst=True, errors="coerce")
+    if pd.isna(parsed):
+        return text
+    return parsed.strftime("%d-%m-%Y")
+
+
+def _format_fecha_yyyymmdd_reporte(value):
+    if _is_blank(value):
+        return ""
+    text = str(value).strip()
+    parsed = pd.to_datetime(text, format="%Y%m%d", errors="coerce")
+    if pd.isna(parsed):
+        parsed = pd.to_datetime(text, dayfirst=True, errors="coerce")
+    if pd.isna(parsed):
+        return text
+    return parsed.strftime("%d-%m-%Y")
+
+
 def _son_importes_iguales(a, b):
     if a is None or b is None:
         return False
@@ -185,7 +219,55 @@ def _build_despachos_index(df_despachos):
     return index, duplicados
 
 
-def _cruzar_archivos(df_sevillanita, df_despachos, nro_factura, fecha_fac):
+def _normalizar_guia(value):
+    return _normalizar_factura_app(value)
+
+
+def _cargar_subtotales_novedades():
+    try:
+        from backend.scripts.procesos_especiales.sync_novedades.config import load_config, validate_config
+        from backend.scripts.procesos_especiales.sync_novedades.extractor_novedades import read_novedades_rows
+    except Exception as exc:
+        print(f"No se pudo importar lector NOVEDADES para SUBTOTAL: {exc}")
+        return {}, {}
+
+    try:
+        config = load_config()
+        validate_config(config, need_app=False, need_sheets=True, need_email=False)
+        _, rows, _ = read_novedades_rows(config)
+    except Exception as exc:
+        print(f"No se pudo leer SUBTOTAL desde NOVEDADES: {exc}")
+        traceback.print_exc()
+        return {}, {}
+
+    by_remito_guia = {}
+    by_remito = {}
+    for row in rows:
+        remito = _normalizar_remito(row.values.get("REMITO"))
+        guia = _normalizar_guia(row.values.get("GUIA"))
+        subtotal = _parse_decimal(row.values.get("SUBTOTAL"))
+        if subtotal is None:
+            continue
+        if remito and guia:
+            by_remito_guia[(remito, guia)] = subtotal
+        if remito:
+            by_remito.setdefault(remito, []).append(subtotal)
+
+    return by_remito_guia, by_remito
+
+
+def _resolver_subtotal_novedades(remito_key, factura_key, subtotales_novedades):
+    by_remito_guia, by_remito = subtotales_novedades
+    if (remito_key, factura_key) in by_remito_guia:
+        return by_remito_guia[(remito_key, factura_key)]
+
+    candidatos = by_remito.get(remito_key, [])
+    if len(candidatos) == 1:
+        return candidatos[0]
+    return None
+
+
+def _cruzar_archivos(df_sevillanita, df_despachos, nro_factura, fecha_fac, subtotales_novedades):
     despachos_index, duplicados = _build_despachos_index(df_despachos)
     filas_reporte = []
     filas_detalle_base = []
@@ -205,9 +287,11 @@ def _cruzar_archivos(df_sevillanita, df_despachos, nro_factura, fecha_fac):
             remito_key = _normalizar_remito(row.get("REMITO"))
             factura_key = _normalizar_factura_desde_partes(row.get("F PREF"), row.get("NRO.GUIA"))
             despacho = despachos_index.get((remito_key, factura_key))
+            subtotal_novedades = _resolver_subtotal_novedades(remito_key, factura_key, subtotales_novedades)
 
             flete = _parse_decimal(row.get("FLETE")) or 0.0
             seguro = _parse_decimal(row.get("SEGURO")) or 0.0
+            total = _parse_decimal(row.get("TOTAL")) or 0.0
             kilos = _parse_decimal(row.get("KILOS")) or 0.0
             tarifa_app = _parse_decimal(despacho.get("Tarifa")) if despacho is not None else None
             seguro_app = _parse_decimal(despacho.get("Seguro")) if despacho is not None else None
@@ -239,20 +323,39 @@ def _cruzar_archivos(df_sevillanita, df_despachos, nro_factura, fecha_fac):
                     resumen["estado_anomalo"] += 1
 
             estado_reporte = "sin match" if despacho is None else estado_app
-            if kilos > 1000:
+            if kilos > 1000 and valor_declarado is None:
                 estado_reporte = "sin match. +1000kg"
 
-            reporte_row = {col: row.get(col, "") for col in [
-                "F PREF", "NRO.GUIA", "REMITO", "FECHA", "BULTOS", "KILOS", "TC", "CC", "UN",
-                "REMITENTE", "DESTINATARIO", "DESTINO", "FLETE", "SEGURO", "TOTAL",
-            ]}
+            diferencia2 = ""
+            if valor_declarado is not None and subtotal_novedades is not None:
+                diferencia2 = round((valor_declarado * 0.005) - (subtotal_novedades * 0.005), 2)
+
+            reporte_row = {
+                "F PREF": row.get("F PREF", ""),
+                "NRO.GUIA": row.get("NRO.GUIA", ""),
+                "REMITO": row.get("REMITO", ""),
+                "FECHA": _format_fecha_reporte(row.get("FECHA")),
+                "BULTOS": row.get("BULTOS", ""),
+                "KILOS": row.get("KILOS", ""),
+                "TC": row.get("TC", ""),
+                "CC": row.get("CC", ""),
+                "UN": row.get("UN", ""),
+                "REMITENTE": row.get("REMITENTE", ""),
+                "DESTINATARIO": row.get("DESTINATARIO", ""),
+                "DESTINO": row.get("DESTINO", ""),
+                "FLETE": _format_decimal_reporte(flete),
+                "SEGURO": _format_decimal_reporte(seguro),
+                "TOTAL": _format_decimal_reporte(total),
+            }
             reporte_row.update({
                 "Valor declarado (app interna)": _format_importe(valor_declarado),
                 "DIFERENCIA": diferencia,
                 "ESTADO (app interna)": estado_reporte,
                 "Nº de Factura": nro_factura,
-                "Fecha de fac": fecha_fac,
+                "Fecha de fac": _format_fecha_yyyymmdd_reporte(fecha_fac),
                 "ALERTA/MOTIVO": ", ".join(alertas),
+                "SUBTOTAL": _format_decimal_reporte(subtotal_novedades),
+                "DIFERENCIA2": _format_decimal_reporte(diferencia2),
             })
             filas_reporte.append(reporte_row)
 
@@ -394,12 +497,14 @@ def process_sevillanitaV2_procesos_especiales(input_path, output_path):
         prefijo, folio, fecha_emision, texto_intermedio = extraer_info_del_nombre_archivo(sevillanita_path)
         nro_factura = f"{prefijo.zfill(4)}-{folio.zfill(8)}"
         fecha_fac = fecha_emision
+        subtotales_novedades = _cargar_subtotales_novedades()
 
         filas_reporte, filas_detalle_base, resumen = _cruzar_archivos(
             data_sevillanita,
             data_despachos,
             nro_factura,
             fecha_fac,
+            subtotales_novedades,
         )
 
         cabecera = _crear_cabecera(prefijo, folio, fecha_emision)

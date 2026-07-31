@@ -423,7 +423,7 @@ def _render_audit_results(data: dict) -> None:
                 df_precios["precio_prov"] = df_precios["precio_prov"].map("${:,.2f}".format)
                 df_precios["variacion_porcentaje"] = df_precios["variacion_porcentaje"].map("{:.2f}%".format)
                 st.dataframe(df_precios, width="stretch")
-        else:
+        elif not audit.get("sevillanita"):
             st.success("No hay variaciones de precio respecto a CEGID.")
 
     # Conflictos de Suc (común a todos)
@@ -472,22 +472,6 @@ def _render_audit_results(data: dict) -> None:
         filas = sevillanita.get("filas", [])
         if filas:
             df_sevillanita = pd.DataFrame(filas)
-            motivos = sorted({
-                motivo.strip()
-                for value in df_sevillanita.get("ALERTA/MOTIVO", pd.Series(dtype=str)).fillna("")
-                for motivo in str(value).split(",")
-                if motivo.strip()
-            })
-            seleccion = st.multiselect(
-                "Filtrar alertas Sevillanita",
-                motivos,
-                key="sevillanita_alertas_filter",
-            )
-            if seleccion:
-                mask = df_sevillanita["ALERTA/MOTIVO"].fillna("").apply(
-                    lambda value: any(motivo in str(value) for motivo in seleccion)
-                )
-                df_sevillanita = df_sevillanita[mask]
             st.dataframe(df_sevillanita, width="stretch")
 
     download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
