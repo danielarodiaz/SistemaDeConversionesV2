@@ -1,5 +1,7 @@
 import pandas as pd
 import re
+from datetime import datetime
+from pathlib import Path
 from backend.utils.pedido_helpers import (
     formatear_precio, resolver_establecimiento, armar_item_auditoria,
 )
@@ -49,6 +51,29 @@ def _particionar_en_lotes(df: pd.DataFrame) -> pd.DataFrame:
             df_chunk['REFERENCIA INTERNA'] = f'{ref}/{lote}'
             partes.append(df_chunk)
     return pd.concat(partes, ignore_index=True)
+
+
+def _generar_entrega_limite(df_final: pd.DataFrame, output_path: str) -> str | None:
+    df_limite = df_final[df_final['ESTABLECIMIENTO'].astype(str).str.zfill(3) == '001'].copy()
+    if df_limite.empty:
+        return None
+
+    ahora = datetime.now()
+    entrega_limite = pd.DataFrame({
+        'Encabezado': 'ENTC1_',
+        'Fecha': ahora.strftime('%d/%m/%Y'),
+        'Ref Interna': 'LIMITE DN' + df_limite['REFERENCIA INTERNA'].astype(str),
+        'Barra': df_limite['CODIGO BARRAS'],
+        'Cant': df_limite['CANTIDAD'],
+        'Precio': df_limite['PRECIO'],
+        'Tercero': '30716059487',
+    })
+
+    output_dir = Path(output_path).resolve().parent
+    limite_path = output_dir / f"ENTREGA_LIMITE_{ahora.strftime('%Y%m%d_%H%M%S')}.csv"
+    entrega_limite.to_csv(limite_path, sep='|', index=False)
+    print(f"📄 Archivo entrega límite generado: {limite_path}")
+    return str(limite_path)
 
 
 def process_adidas_pedido_proveedor(input_path, output_path):
@@ -122,6 +147,13 @@ def process_adidas_pedido_proveedor(input_path, output_path):
     df_transformado.sort_values(by=['REFERENCIA INTERNA', 'PRECIO'], inplace=True)
     df_final = _particionar_en_lotes(df_transformado)
     df_final['PRECIO'] = df_final['PRECIO'].apply(formatear_precio)
+    entrega_limite_path = _generar_entrega_limite(df_final, output_path)
     df_final.to_csv(output_path, sep='|', index=False)
+
+    if entrega_limite_path:
+        mensaje = "Se detectó pedidos de BLANCO y se generó archivo de entrega para LIMITE."
+        informe.setdefault('avisos_generales', []).append(mensaje)
+        informe['mensaje'] = mensaje
+        informe['archivos_extra'] = [entrega_limite_path]
 
     return informe

@@ -1,5 +1,6 @@
 import os
 import sys
+import zipfile
 
 # ── Path setup: debe ir PRIMERO para que todos los imports de backend.* funcionen
 # tanto al ejecutar como script (py backend/app.py) como al importar como módulo.
@@ -308,26 +309,42 @@ EXPECTED_INPUT_EXT = {
 
 @app.route('/api/process/<provider_id>', methods=['POST'])
 def process_file(provider_id):
-    config = PROCESSOR_MAP.get(provider_id.lower())
+    provider_key = provider_id.lower()
+    config = PROCESSOR_MAP.get(provider_key)
     if not config:
         return jsonify({"error": "Procesador no encontrado"}), 404
 
+    files = request.files.getlist('files') if provider_key == "sevillanita" else []
     file = request.files.get('file')
-    if not file:
+    if provider_key == "sevillanita":
+        if len(files) != 2:
+            return jsonify({"error": "Sevillanita requiere dos archivos .xlsx"}), 400
+    elif not file:
         return jsonify({"error": "No se recibió archivo"}), 400
 
     # Validación de tipo de archivo de entrada
-    expected_ext = EXPECTED_INPUT_EXT.get(provider_id.lower())
+    expected_ext = EXPECTED_INPUT_EXT.get(provider_key)
     if expected_ext:
-        _, uploaded_ext = os.path.splitext(file.filename)
-        if uploaded_ext.lower() != expected_ext.lower():
-            return jsonify({
-                "error": f"El tipo de archivo no es el esperado. Por favor, procesá un archivo {expected_ext.upper()}"
-            }), 400
+        files_to_validate = files if provider_key == "sevillanita" else [file]
+        for uploaded_file in files_to_validate:
+            _, uploaded_ext = os.path.splitext(uploaded_file.filename)
+            if uploaded_ext.lower() != expected_ext.lower():
+                return jsonify({
+                    "error": f"El tipo de archivo no es el esperado. Por favor, procesá un archivo {expected_ext.upper()}"
+                }), 400
 
-    filename = secure_filename(file.filename)
-    input_path = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(input_path)
+    input_path = None
+    input_paths = []
+    if provider_key == "sevillanita":
+        for uploaded_file in files:
+            filename = secure_filename(uploaded_file.filename)
+            saved_path = os.path.join(UPLOAD_FOLDER, filename)
+            uploaded_file.save(saved_path)
+            input_paths.append(saved_path)
+    else:
+        filename = secure_filename(file.filename)
+        input_path = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(input_path)
 
     processor_func = config["func"]
     base_ext = config["ext"]
@@ -336,7 +353,8 @@ def process_file(provider_id):
     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
     try:
-        result = processor_func(input_path, output_path)
+        processor_input = input_paths if provider_key == "sevillanita" else input_path
+        result = processor_func(processor_input, output_path)
 
         # Detectar si el resultado contiene datos de auditoría
         audit_report = {
@@ -346,10 +364,18 @@ def process_file(provider_id):
             "conflictos_suc": [],
             "alertas_sucursales": [],
             "avisos_sucursales": [],
+            "avisos_generales": [],
+            "sevillanita": {},
         }
         has_audit = False
+        message = None
+        archivos_extra = []
 
         if isinstance(result, dict):
+            message = result.get('mensaje')
+            archivos_extra = result.get('archivos_extra') or []
+            if result.get("output_path"):
+                output_filename = os.path.basename(result["output_path"])
             tiene_alertas = (
                 result.get('faltantes')
                 or result.get('cambios_precio')
@@ -357,6 +383,9 @@ def process_file(provider_id):
                 or result.get('conflictos_suc')
                 or result.get('alertas_sucursales')
                 or result.get('avisos_sucursales')
+                or result.get('avisos_generales')
+                or result.get('mensaje')
+                or result.get('sevillanita')
             )
             if tiene_alertas:
                 audit_report = result
@@ -374,7 +403,33 @@ def process_file(provider_id):
                 output_folder=OUTPUT_FOLDER,
                 ts=ts,
             )
+            if archivos_extra:
+                with zipfile.ZipFile(zip_path, 'a', zipfile.ZIP_DEFLATED) as zf:
+                    for extra_path in archivos_extra:
+                        if os.path.exists(extra_path):
+                            zf.write(extra_path, os.path.basename(extra_path))
+                            os.remove(extra_path)
             output_filename = os.path.basename(zip_path)
+        elif archivos_extra and os.path.exists(output_path):
+            proveedor_slug = provider_id.upper()
+            base = f"{proveedor_slug}_{ts}"
+            import_filename = f"{base}_IMPORTACION.csv"
+            import_path = os.path.join(OUTPUT_FOLDER, import_filename)
+            os.rename(output_path, import_path)
+
+            zip_filename = f"{base}.zip"
+            zip_path = os.path.join(OUTPUT_FOLDER, zip_filename)
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                zf.write(import_path, import_filename)
+                for extra_path in archivos_extra:
+                    if os.path.exists(extra_path):
+                        zf.write(extra_path, os.path.basename(extra_path))
+
+            for cleanup_path in [import_path, *archivos_extra]:
+                if os.path.exists(cleanup_path):
+                    os.remove(cleanup_path)
+
+            output_filename = zip_filename
 
         backend_url = os.getenv('BACKEND_URL', 'http://localhost:5000')
         return jsonify({
@@ -383,6 +438,7 @@ def process_file(provider_id):
             "download_url": f"{backend_url}/api/download/{output_filename}",
             "audit": audit_report,
             "has_audit": has_audit,
+            "message": message,
         }), 200
 
     except Exception as e:

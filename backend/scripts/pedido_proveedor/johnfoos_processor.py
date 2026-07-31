@@ -22,13 +22,32 @@ def _formatear_remito(valor) -> str:
     return f'{valor_str[:4]}-{valor_str[4:]}'
 
 
+def _codigo_excel_a_str(valor) -> str:
+    """Normaliza codigos leidos desde Excel sin conservar el .0 artificial."""
+    if pd.isna(valor):
+        return ''
+    if isinstance(valor, float) and valor.is_integer():
+        return str(int(valor))
+    texto = str(valor).strip()
+    if re.fullmatch(r'\d+\.0', texto):
+        return texto[:-2]
+    return texto
+
+
 def process_johnfoos_pedido_proveedor(input_path, output_path):
     """
     Procesa un .xlsx de John Foos.
     Genera el CSV para CEGID y retorna el informe de auditoría.
     """
     try:
-        data = pd.read_excel(input_path)
+        data = pd.read_excel(
+            input_path,
+            converters={
+                'EAN': _codigo_excel_a_str,
+                'Articulo': _codigo_excel_a_str,
+                'Talle': _codigo_excel_a_str,
+            },
+        )
         conflictos_suc = detectar_conflictos_suc(data, _COLUMNAS_REPORTE)
 
         registros_cegid = []
@@ -38,7 +57,7 @@ def process_johnfoos_pedido_proveedor(input_path, output_path):
             try:
                 fecha_str = pd.to_datetime(row['Fecha'], dayfirst=True).strftime('%d%m%y')
                 referencia_formateada = _formatear_remito(row.get('Remito'))
-                codigo_barras = str(row['EAN']).strip() if not pd.isna(row['EAN']) else ''
+                codigo_barras = _codigo_excel_a_str(row['EAN'])
                 cantidad = int(row['Cantidad'])
                 precio_float = round(float(row['PreUni']), 2)
                 establecimiento = resolver_establecimiento(row.get('Empresa', ''))
@@ -46,9 +65,9 @@ def process_johnfoos_pedido_proveedor(input_path, output_path):
                 dto_raw = resolver_descuento(row.get('Dto.Com'))
 
                 # Artículo limpio: quitar '/' y '-' (ej. "950056/01" → "95005601")
-                codigo_articulo = re.sub(r'[/\-]', '', str(row.get('Articulo', '')).strip())
+                codigo_articulo = re.sub(r'[/\-]', '', _codigo_excel_a_str(row.get('Articulo', '')))
                 descripcion = str(row.get('Descripcion', '')).strip().upper()
-                talle = str(row.get('Talle', '')).strip()
+                talle = _codigo_excel_a_str(row.get('Talle', ''))
 
                 registros_cegid.append({
                     'CAB': 'ZCOC1_',
