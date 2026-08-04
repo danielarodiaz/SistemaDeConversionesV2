@@ -25,6 +25,21 @@ _COLUMNAS_REPORTE = [
 ]
 
 
+def _limpiar_codigo(valor) -> str:
+    """Limpia codigos importados desde Excel antes de exportar o auditar."""
+    if pd.isna(valor):
+        return ""
+    if isinstance(valor, float):
+        return str(int(round(valor)))
+    texto = str(valor).strip()
+    for caracter in ("'", "`", chr(180), chr(8216), chr(8217)):
+        texto = texto.replace(caracter, "")
+    texto = texto.replace("\u200b", "").replace("\ufeff", "").strip()
+    if re.fullmatch(r"\d+\.0", texto):
+        texto = texto[:-2]
+    return texto
+
+
 def _formatear_remito(valor) -> str:
     """Convierte el Remito a formato NNNN-NNNNNNNN (12 dígitos con guion)."""
     if pd.isna(valor):
@@ -83,14 +98,7 @@ def _parsear_dto(valor) -> float:
 
 
 def _ean_a_str(valor) -> str:
-    if pd.isna(valor):
-        return ""
-    if isinstance(valor, float):
-        return str(int(round(valor)))
-    s = str(valor).strip()
-    if re.fullmatch(r"\d+\.0", s):
-        s = s[:-2]
-    return s
+    return _limpiar_codigo(valor)
 
 
 def _almacen_desde_suc(valor) -> str:
@@ -140,6 +148,9 @@ def _cargar_excel_procer(input_path: str) -> pd.DataFrame:
     data = data.dropna(how="all")
     if data.empty:
         return data
+    for columna in ("Articulo", "EAN"):
+        if columna in data.columns:
+            data[columna] = data[columna].apply(_limpiar_codigo)
     mask = data.apply(_fila_tiene_pedido, axis=1)
     filtrado = data.loc[mask].copy().reset_index(drop=True)
     omitidas = len(data) - len(filtrado)
@@ -183,7 +194,7 @@ def process_procer_pedido_proveedor(input_path, output_path):
                 dto_raw = row.get("Dto", row.get("DTO"))
                 descuento = _parsear_dto(dto_raw)
 
-                articulo_raw = str(row.get("Articulo", "")).strip()
+                articulo_raw = _limpiar_codigo(row.get("Articulo", ""))
                 codigo_articulo = re.sub(r"[/\-]", "", articulo_raw)
                 descripcion = str(row.get("Descripcion", "")).strip()
                 talle = str(row.get("Talle", "")).strip()
