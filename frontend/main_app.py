@@ -2,6 +2,10 @@ import streamlit as st
 import requests
 import os
 import pandas as pd
+import logging
+import platform
+import sys
+import traceback
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -20,6 +24,7 @@ except Exception:
     # No hay secrets.toml (entorno local sin Streamlit Cloud)
     _backend_from_secrets = None
 BACKEND_URL = (_backend_from_env or _backend_from_secrets or "http://localhost:5000").rstrip("/")
+LOGGER = logging.getLogger("frontend.main_app")
 
 # Header requerido por ngrok para que no bloquee requests automáticas
 # (se ignora silenciosamente si el backend no usa ngrok)
@@ -43,6 +48,24 @@ local_css(os.path.join(BASE_DIR, "static", "css", "custom_style.css"))
 
 def get_img(name):
     return os.path.join(IMG_DIR, name)
+
+
+def _render_error_details(error: Exception) -> None:
+    """Muestra detalles utiles cuando Streamlit captura un error no manejado."""
+    st.error("El frontend no pudo renderizarse correctamente.")
+    st.exception(error)
+
+    with st.expander("Detalles tecnicos", expanded=True):
+        st.code("".join(traceback.format_exception(type(error), error, error.__traceback__)), language="python")
+        st.write(
+            {
+                "backend_url": BACKEND_URL,
+                "python": sys.version,
+                "platform": platform.platform(),
+                "working_directory": os.getcwd(),
+                "frontend_directory": BASE_DIR,
+            }
+        )
 
 
 # ── Catálogo de proveedores ───────────────────────────────────────────────────
@@ -73,18 +96,6 @@ PROVIDERS = {
     "mayorista":        {"name": "Mayorista",   "logo": "logo_mayorista.png",   "cat": "Procesos Especiales","ext": ".xlsx"},
     "sevillanita":      {"name": "Sevillanita", "logo": "logo_sevillanita.png", "cat": "Procesos Especiales","ext": ".xlsx"},
 }
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.image(get_img("logo_marathon_M.png"), width=80)
-    st.markdown("<h2 style='text-align: center;'>Panel de Control</h2>", unsafe_allow_html=True)
-    st.divider()
-    menu = st.radio("Secciones", ["Pedido Proveedor", "Propuesta de Compra", "Procesos Especiales", "Auditoria Logistica"])
-
-st.title(f"📂 {menu}")
-
 
 def _api_get(path: str, params=None) -> dict:
     res = requests.get(f"{BACKEND_URL}{path}", params=params, headers=NGROK_HEADERS, timeout=20)
@@ -610,20 +621,41 @@ def _render_sync_novedades_panel() -> None:
                     st.error(f"No se pudo ejecutar la sincronizacion: {e}")
 
 
-if menu == "Auditoria Logistica":
-    _render_auditoria_logistica()
-else:
-    if menu == "Procesos Especiales":
-        _render_sync_novedades_panel()
+def _render_app() -> None:
+    with st.sidebar:
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.image(get_img("logo_marathon_M.png"), width=80)
+        st.markdown("<h2 style='text-align: center;'>Panel de Control</h2>", unsafe_allow_html=True)
         st.divider()
+        menu = st.radio(
+            "Secciones",
+            ["Pedido Proveedor", "Propuesta de Compra", "Procesos Especiales", "Auditoria Logistica"],
+        )
+
+    st.title(f"📂 {menu}")
+
+    if menu == "Auditoria Logistica":
+        _render_auditoria_logistica()
+    else:
+        if menu == "Procesos Especiales":
+            _render_sync_novedades_panel()
+            st.divider()
 
     # ── Grid de proveedores ───────────────────────────────────────────────────────
-    items = {k: v for k, v in PROVIDERS.items() if v["cat"] == menu}
-    cols = st.columns(3)
+        items = {k: v for k, v in PROVIDERS.items() if v["cat"] == menu}
+        cols = st.columns(3)
 
-    for idx, (id_p, info) in enumerate(items.items()):
-        with cols[idx % 3]:
-            _render_provider_card(id_p, info)
+        for idx, (id_p, info) in enumerate(items.items()):
+            with cols[idx % 3]:
+                _render_provider_card(id_p, info)
 
-st.divider()
-st.caption(f"Creado por Daniela Diaz © {datetime.now().year}")
+    st.divider()
+    st.caption(f"Creado por Daniela Diaz © {datetime.now().year}")
+
+
+try:
+    _render_app()
+except Exception as exc:
+    LOGGER.exception("Unhandled Streamlit frontend error")
+    _render_error_details(exc)
