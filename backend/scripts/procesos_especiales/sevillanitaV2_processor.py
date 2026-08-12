@@ -2,6 +2,7 @@ import os
 import re
 import zipfile
 import traceback
+import unicodedata
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
@@ -14,6 +15,33 @@ ESTADOS_VALIDOS = {
     "recibido sin acuse",
 }
 DEFAULT_OCR = "240001"
+SEVILLANITA_REQUIRED_COLUMNS = ["NRO.GUIA", "REMITO", "FLETE", "SEGURO"]
+COLUMN_ALIASES = {
+    "FPREF": "F PREF",
+    "PREF": "F PREF",
+    "PREFIJO": "F PREF",
+    "NROGUIA": "NRO.GUIA",
+    "NRODEGUIA": "NRO.GUIA",
+    "NUMEROGUIA": "NRO.GUIA",
+    "GUIA": "NRO.GUIA",
+    "REMITO": "REMITO",
+    "REMIT0": "REMITO",
+    "NROREMITO": "REMITO",
+    "NRODEREMITO": "REMITO",
+    "FECHA": "FECHA",
+    "BULTOS": "BULTOS",
+    "KILOS": "KILOS",
+    "KG": "KILOS",
+    "TC": "TC",
+    "CC": "CC",
+    "UN": "UN",
+    "REMITENTE": "REMITENTE",
+    "DESTINATARIO": "DESTINATARIO",
+    "DESTINO": "DESTINO",
+    "FLETE": "FLETE",
+    "SEGURO": "SEGURO",
+    "TOTAL": "TOTAL",
+}
 
 
 def extraer_info_del_nombre_archivo(file_path):
@@ -58,9 +86,22 @@ def _detectar_archivos(input_paths):
     return despachos_path, sevillanita_path
 
 
+def _column_key(value):
+    text = "" if value is None else str(value).strip()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"[^A-Z0-9]", "", text.upper())
+
+
+def _canonical_column_name(value):
+    text = "" if value is None else str(value).strip()
+    return COLUMN_ALIASES.get(_column_key(text), text)
+
+
 def _limpiar_columnas(df):
-    df.columns = [str(col).strip() for col in df.columns]
-    return df[[col for col in df.columns if col and not col.startswith("Unnamed")]]
+    df.columns = [_canonical_column_name(col) for col in df.columns]
+    columnas_validas = [col for col in df.columns if col and not str(col).startswith("Unnamed")]
+    return df[columnas_validas]
 
 
 def _is_blank(value):
@@ -69,12 +110,24 @@ def _is_blank(value):
     return str(value).strip().lower() in {"", "nan", "none", "null"}
 
 
+def _row_get(row, *names, default=None):
+    for name in names:
+        value = row.get(name)
+        if not _is_blank(value):
+            return value
+    return default
+
+
 def _leer_excel_con_header_detectado(file_path, columnas_requeridas):
     preview = pd.read_excel(file_path, header=None, dtype=str)
-    required = {col.upper() for col in columnas_requeridas}
+    required = {_canonical_column_name(col).upper() for col in columnas_requeridas}
 
     for idx, row in preview.iterrows():
-        values = {str(value).strip().upper() for value in row.tolist() if not pd.isna(value)}
+        values = {
+            _canonical_column_name(value).upper()
+            for value in row.tolist()
+            if not pd.isna(value)
+        }
         if required.issubset(values):
             return _limpiar_columnas(pd.read_excel(file_path, header=idx, dtype=str))
 
@@ -112,6 +165,26 @@ def _normalizar_factura_app(value):
     if len(digits) > 8:
         return f"{digits[:-8].zfill(4)}-{digits[-8:].zfill(8)}"
     return ""
+
+
+def _extraer_partes_guia(row):
+    prefijo = row.get("F PREF")
+    guia = row.get("NRO.GUIA")
+
+    if not _is_blank(prefijo):
+        return _digits(prefijo), _digits(guia)
+
+    parts = re.findall(r"\d+", "" if _is_blank(guia) else str(guia))
+    if len(parts) >= 2:
+        return parts[0], parts[1]
+    return "", _digits(guia)
+
+
+def _normalizar_factura_sevillanita(row):
+    prefijo, guia = _extraer_partes_guia(row)
+    if prefijo and guia:
+        return _normalizar_factura_desde_partes(prefijo, guia)
+    return _normalizar_factura_app(row.get("NRO.GUIA"))
 
 
 def _parse_decimal(value):
@@ -193,11 +266,11 @@ def _extraer_ocr_desde_texto(value):
 
 def _obtener_ocr_code(row_despacho):
     if row_despacho is not None:
-        destino = _extraer_ocr_desde_texto(row_despacho.get("Destino"))
+        destino = _extraer_ocr_desde_texto(_row_get(row_despacho, "Destino", "DESTINO"))
         if destino:
             return f"{destino}-1", f"{destino}-2"
 
-        sucursal_acuse = _extraer_ocr_desde_texto(row_despacho.get("Sucursal acuse"))
+        sucursal_acuse = _extraer_ocr_desde_texto(_row_get(row_despacho, "Sucursal acuse"))
         if sucursal_acuse:
             return f"{sucursal_acuse}-1", f"{sucursal_acuse}-2"
 
@@ -209,8 +282,8 @@ def _build_despachos_index(df_despachos):
     duplicados = set()
 
     for _, row in df_despachos.iterrows():
-        remito_key = _normalizar_remito(row.get("Nro remito"))
-        factura_key = _normalizar_factura_app(row.get("Nro factura"))
+        remito_key = _normalizar_remito(_row_get(row, "Nro remito", "REMITO"))
+        factura_key = _normalizar_factura_app(_row_get(row, "Nro factura", "NRO.GUIA"))
         key = (remito_key, factura_key)
         if key in index:
             duplicados.add(key)
@@ -285,7 +358,8 @@ def _cruzar_archivos(df_sevillanita, df_despachos, nro_factura, fecha_fac, subto
                 continue
 
             remito_key = _normalizar_remito(row.get("REMITO"))
-            factura_key = _normalizar_factura_desde_partes(row.get("F PREF"), row.get("NRO.GUIA"))
+            prefijo_guia, nro_guia = _extraer_partes_guia(row)
+            factura_key = _normalizar_factura_sevillanita(row)
             despacho = despachos_index.get((remito_key, factura_key))
             subtotal_novedades = _resolver_subtotal_novedades(remito_key, factura_key, subtotales_novedades)
 
@@ -293,10 +367,10 @@ def _cruzar_archivos(df_sevillanita, df_despachos, nro_factura, fecha_fac, subto
             seguro = _parse_decimal(row.get("SEGURO")) or 0.0
             total = _parse_decimal(row.get("TOTAL")) or 0.0
             kilos = _parse_decimal(row.get("KILOS")) or 0.0
-            tarifa_app = _parse_decimal(despacho.get("Tarifa")) if despacho is not None else None
-            seguro_app = _parse_decimal(despacho.get("Seguro")) if despacho is not None else None
-            valor_declarado = _parse_decimal(despacho.get("Valor declarado")) if despacho is not None else None
-            estado_app = str(despacho.get("Estado", "")).strip() if despacho is not None else "sin match"
+            tarifa_app = _parse_decimal(_row_get(despacho, "Tarifa")) if despacho is not None else None
+            seguro_app = _parse_decimal(_row_get(despacho, "Seguro", "SEGURO")) if despacho is not None else None
+            valor_declarado = _parse_decimal(_row_get(despacho, "Valor declarado")) if despacho is not None else None
+            estado_app = str(_row_get(despacho, "Estado", default="")).strip() if despacho is not None else "sin match"
 
             alertas = []
             if despacho is None:
@@ -331,8 +405,8 @@ def _cruzar_archivos(df_sevillanita, df_despachos, nro_factura, fecha_fac, subto
                 diferencia2 = round((valor_declarado * 0.005) - (subtotal_novedades * 0.005), 2)
 
             reporte_row = {
-                "F PREF": row.get("F PREF", ""),
-                "NRO.GUIA": row.get("NRO.GUIA", ""),
+                "F PREF": prefijo_guia or row.get("F PREF", ""),
+                "NRO.GUIA": nro_guia or row.get("NRO.GUIA", ""),
                 "REMITO": row.get("REMITO", ""),
                 "FECHA": _format_fecha_reporte(row.get("FECHA")),
                 "BULTOS": row.get("BULTOS", ""),
@@ -487,7 +561,7 @@ def process_sevillanitaV2_procesos_especiales(input_path, output_path):
 
         data_sevillanita = _leer_excel_con_header_detectado(
             sevillanita_path,
-            ["F PREF", "NRO.GUIA", "REMITO", "FLETE", "SEGURO"],
+            SEVILLANITA_REQUIRED_COLUMNS,
         )
         data_despachos = _leer_excel_con_header_detectado(
             despachos_path,

@@ -339,6 +339,8 @@ class Articulo(Base):
     descripcionSilueta = Column(String(255))
     uso = Column(String(50))
     descripcionUso = Column(String(255))
+    promo = Column(String(50))
+    descripcionPromo = Column(String(255))
     codigoBarra = Column(String(50), index=True) # EAN / UPC
     
     # 16 - 20
@@ -375,6 +377,8 @@ class Articulo(Base):
     descripciongrupo = Column(String(255))
     
     # Control interno de base de datos
+    sector = Column(String(50), default='base', nullable=True, index=True)
+    estado = Column(String(50), default='borrador', nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     
 class ArticuloComplementario(Base):
@@ -390,6 +394,8 @@ class ArticuloComplementario(Base):
     codigoBarra = Column(String(50), index=True)
     codigoCruzar = Column(String(50), index=True)
     objetivoGeneral = Column(String(50), index=True)
+    sector = Column(String(50), default='base', nullable=True, index=True)
+    estado = Column(String(50), default='borrador', nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
 class TalleMaestro(Base):

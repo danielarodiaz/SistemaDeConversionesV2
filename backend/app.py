@@ -15,6 +15,18 @@ from dotenv import load_dotenv
 from backend.utils.pedido_helpers import generar_zip_con_variaciones
 from backend.database import DB_AUTH_TYPE, DB_HOST, DB_NAME, _HOSTNAME
 from backend.services.auditoria_service import AuditoriaService
+from backend.scripts.abm_articulos.service import (
+    crear_borrador as abm_crear_borrador,
+    actualizar_complementario as abm_actualizar_complementario,
+    eliminar_borrador as abm_eliminar_borrador,
+    eliminar_borradores as abm_eliminar_borradores,
+    eliminar_complementarios as abm_eliminar_complementarios,
+    exportar_complementarios as abm_exportar_complementarios,
+    exportar_borradores as abm_exportar_borradores,
+    listar_complementarios as abm_listar_complementarios,
+    listar_borradores as abm_listar_borradores,
+    obtener_catalogos as abm_obtener_catalogos,
+)
 
 # Fuerza UTF-8 en la consola para evitar UnicodeEncodeError con emojis en Windows
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
@@ -243,6 +255,142 @@ def procesos_especiales_sync_novedades():
 
         traceback.print_exc()
         return jsonify({"error": str(e), "type": type(e).__name__}), 500
+
+
+@app.route('/api/abm-articulos/catalogos', methods=['GET'])
+def abm_articulos_catalogos():
+    try:
+        return jsonify(abm_obtener_catalogos()), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/borradores', methods=['GET'])
+def abm_articulos_borradores():
+    try:
+        return jsonify({"items": abm_listar_borradores()}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/borradores', methods=['POST'])
+def abm_articulos_crear_borrador():
+    try:
+        payload = request.get_json(force=True) or {}
+        result = abm_crear_borrador(payload)
+        return jsonify({"status": "success", **result}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/borradores/<int:borrador_id>', methods=['DELETE'])
+def abm_articulos_eliminar_borrador(borrador_id):
+    try:
+        deleted = abm_eliminar_borrador(borrador_id)
+        if not deleted:
+            return jsonify({"error": "Borrador no encontrado"}), 404
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/borradores', methods=['DELETE'])
+def abm_articulos_eliminar_borradores():
+    try:
+        payload = request.get_json(silent=True) or {}
+        deleted = abm_eliminar_borradores(payload.get("ids", []))
+        return jsonify({"status": "success", "deleted": deleted}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/exportar', methods=['POST'])
+def abm_articulos_exportar():
+    try:
+        result = abm_exportar_borradores()
+        backend_url = os.getenv('BACKEND_URL', 'http://localhost:5000')
+        return jsonify({
+            "status": "success",
+            **result,
+            "download_url": f"{backend_url}/api/download/{result['filename']}",
+        }), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/complementarios', methods=['GET'])
+def abm_articulos_complementarios():
+    try:
+        return jsonify({"items": abm_listar_complementarios()}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/complementarios/<int:comp_id>', methods=['PUT'])
+def abm_articulos_actualizar_complementario(comp_id):
+    try:
+        payload = request.get_json(force=True) or {}
+        item = abm_actualizar_complementario(comp_id, payload)
+        if item is None:
+            return jsonify({"error": "Complementario no encontrado"}), 404
+        return jsonify({"status": "success", "item": item}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/complementarios', methods=['DELETE'])
+def abm_articulos_eliminar_complementarios():
+    try:
+        payload = request.get_json(silent=True) or {}
+        deleted = abm_eliminar_complementarios(
+            comp_ids=payload.get("ids", []),
+            borrar_todo=bool(payload.get("all", False)),
+        )
+        return jsonify({"status": "success", "deleted": deleted}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/complementarios/exportar', methods=['POST'])
+def abm_articulos_exportar_complementarios():
+    try:
+        payload = request.get_json(silent=True) or {}
+        result = abm_exportar_complementarios(payload.get("ids", []))
+        backend_url = os.getenv('BACKEND_URL', 'http://localhost:5000')
+        return jsonify({
+            "status": "success",
+            **result,
+            "download_url": f"{backend_url}/api/download/{result['filename']}",
+        }), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
