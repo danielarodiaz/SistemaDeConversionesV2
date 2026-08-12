@@ -232,6 +232,57 @@ def obtener_costos_por_codigos_barras(codigos_barras: List[str]) -> Dict[str, Tu
     finally:
         if 'conexion' in locals() and conexion:
             conexion.close()
+
+
+def obtener_codigos_cruzar_articulos(pares_codigo_barra: List[Tuple[str, str]]) -> Dict[Tuple[str, str], str]:
+    """
+    Cruza codigo de articulo + codigo de barra contra CEGID y devuelve GA_ARTICLE.
+    Si CEGID no esta disponible o no hay match, el caller debe usar codigoBarra como fallback.
+    """
+    if not pares_codigo_barra:
+        return {}
+
+    pares = []
+    vistos = set()
+    for codigo, codigo_barra in pares_codigo_barra:
+        codigo_limpio = str(codigo or "").strip()
+        barra_limpia = str(codigo_barra or "").strip()
+        clave = (codigo_limpio, barra_limpia)
+        if codigo_limpio and barra_limpia and clave not in vistos:
+            pares.append(clave)
+            vistos.add(clave)
+
+    if not pares or _cegid_deshabilitado():
+        return {}
+
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return {}
+
+        cursor = conexion.cursor()
+        resultados: Dict[Tuple[str, str], str] = {}
+        query = """
+            SELECT GA_ARTICLE
+            FROM MARAPROD24.dbo.ARTICLE
+            WHERE GA_CODEARTICLE = ?
+              AND GA_CODEBARRE = ?
+        """
+        for codigo, codigo_barra in pares:
+            cursor.execute(query, (codigo, codigo_barra))
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                resultados[(codigo, codigo_barra)] = str(row[0]).strip()
+        return resultados
+
+    except Exception as e:
+        print(f"Error cruzando articulos contra CEGID: {e}")
+        return {}
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
 def obtener_costo_por_modelo(codigo_articulo):
     """Busca el costo base del modelo (sin depender del EAN)"""
     try:
