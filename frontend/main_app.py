@@ -635,7 +635,7 @@ def _render_sync_novedades_panel() -> None:
             key="sync_novedades_file",
             label_visibility="collapsed",
         )
-        dry_run = c2.toggle("Dry-run", value=True, help="Simula la corrida sin escribir en Google Sheets.")
+        dry_run = c2.toggle("Run-simulation", value=True, help="Simula la corrida sin escribir en Google Sheets.")
 
         if st.button("Ejecutar sync NOVEDADES", type="primary", width="stretch"):
             if not novedades_file:
@@ -652,8 +652,6 @@ def _render_sync_novedades_panel() -> None:
                         f"Corrida finalizada: {result.get('matched_rows', 0)} matches, "
                         f"{result.get('completed_ok', 0)} filas OK, {len(result.get('conflicts', []))} conflictos."
                     )
-                    with st.expander("Resumen tecnico", expanded=True):
-                        st.text(result.get("summary", ""))
                     if result.get("updates"):
                         title = "Celdas que se escribirian" if dry_run else "Celdas actualizadas"
                         st.info(f"{title}: {len(result['updates'])}")

@@ -45,6 +45,7 @@ def calculate_desired_values(log_row: pd.Series) -> dict[str, str]:
         "RECIBIDA": only_date(log_row.get("Fecha acuse", "")),
         "TRANSPORTE": "SEVIL",
         "GUIA": normalize_guia(log_row.get("Nro factura", "")),
+        "VD": _format_valor_declarado(log_row.get("Valor declarado", "")),
     }
     if sucursal and sucursal != DEPOSITO_PRINCIPAL:
         desired["OBSERVACIONES"] = sucursal
@@ -227,7 +228,31 @@ def _canonical_text(value: Any) -> str:
     return " ".join(_clean(value).upper().split())
 
 
-def _clean(value: Any) -> str:
-    if value is None:
+def _format_valor_declarado(value: Any) -> str:
+    if value is None or pd.isna(value):
         return ""
-    return str(value).strip()
+    if isinstance(value, (int, float)):
+        return f"{value:.2f}".replace(".", ",")
+
+    text = _clean(value)
+    if not text:
+        return ""
+
+    if "," in text and "." in text:
+        comma_pos = text.rfind(",")
+        dot_pos = text.rfind(".")
+        if dot_pos > comma_pos:
+            return text.replace(",", "").replace(".", ",")
+        return text
+
+    if "." in text and "," not in text:
+        return text.replace(".", ",")
+
+    return text
+
+
+def _clean(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in {"nan", "none", "null", "nat"} else text
