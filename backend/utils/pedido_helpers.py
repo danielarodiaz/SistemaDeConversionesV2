@@ -12,6 +12,143 @@ import pandas as pd
 from backend.services.validator import CegidValidator
 
 
+def _normalizar_valor_reporte(valor):
+    if _valor_vacio(valor):
+        return ""
+    if isinstance(valor, pd.Timestamp):
+        return valor.strftime("%d/%m/%Y") if not pd.isna(valor) else ""
+    return valor.item() if hasattr(valor, "item") else valor
+
+
+def _normalizar_dataframe_reporte(df: pd.DataFrame) -> pd.DataFrame:
+    if hasattr(df, "map"):
+        return df.map(_normalizar_valor_reporte)
+    return df.applymap(_normalizar_valor_reporte)
+
+
+def _valor_vacio(valor) -> bool:
+    if valor is None:
+        return True
+    try:
+        if pd.isna(valor):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return str(valor).strip().lower() in {"", "nan", "none", "null"}
+
+
+def _buscar_columna(columns, posibles: list[str]) -> str | None:
+    normalizadas = {str(col).strip().lower(): col for col in columns}
+    for nombre in posibles:
+        col = normalizadas.get(str(nombre).strip().lower())
+        if col is not None:
+            return col
+    return None
+
+
+def detectar_ean_vacios(
+    df: pd.DataFrame,
+    columnas_reporte: list | None = None,
+    columnas_ean: list[str] | None = None,
+) -> list:
+    """
+    Detecta filas con columna EAN/codigo de barras presente pero sin valor.
+    Si no existe una columna EAN equivalente, no genera alerta.
+    """
+    if df is None or df.empty:
+        return []
+
+    columnas_ean = columnas_ean or [
+        "EAN",
+        "EAN/GTIN",
+        "Codigo de EAN",
+        "Código de EAN",
+        "Codigo EAN",
+        "Código EAN",
+        "UPC",
+        "Codigo Barras",
+        "Código de Barras",
+        "Código Barras",
+    ]
+    col_ean = _buscar_columna(df.columns, columnas_ean)
+    if col_ean is None:
+        return []
+
+    mask = df[col_ean].apply(_valor_vacio)
+    columnas_contexto = [col for col in df.columns if col != col_ean]
+    if columnas_contexto:
+        filas_con_datos = df[columnas_contexto].apply(
+            lambda row: any(not _valor_vacio(valor) for valor in row),
+            axis=1,
+        )
+        mask = mask & filas_con_datos
+
+    if not mask.any():
+        return []
+
+    columnas_base = columnas_reporte or list(df.columns)
+    cols = [c for c in columnas_base if c in df.columns]
+    if col_ean not in cols:
+        cols.append(col_ean)
+
+    filas = df.loc[mask, cols].copy()
+    filas.insert(0, "Fila", [int(idx) + 2 if isinstance(idx, int) else str(idx) for idx in filas.index])
+    if col_ean != "EAN":
+        filas["Columna EAN"] = col_ean
+
+    if "Fecha" in filas.columns:
+        fechas = pd.to_datetime(filas["Fecha"], dayfirst=True, errors="coerce")
+        if fechas.notna().any():
+            filas["Fecha"] = filas["Fecha"].astype(object)
+            filas.loc[fechas.notna(), "Fecha"] = fechas[fechas.notna()].dt.strftime("%d/%m/%Y")
+
+    filas = _normalizar_dataframe_reporte(filas)
+    return filas.to_dict(orient="records")
+
+
+def detectar_campos_requeridos_vacios(
+    df: pd.DataFrame,
+    columnas_requeridas: list[str],
+    columnas_reporte: list | None = None,
+) -> list:
+    """Detecta campos requeridos vacios sin bloquear el procesamiento."""
+    if df is None or df.empty:
+        return []
+
+    columnas_existentes = [col for col in columnas_requeridas if col in df.columns]
+    if not columnas_existentes:
+        return []
+
+    alertas = []
+    columnas_base = columnas_reporte or list(df.columns)
+    cols = [c for c in columnas_base if c in df.columns]
+
+    for idx, row in df.iterrows():
+        campos_vacios = [col for col in columnas_existentes if _valor_vacio(row.get(col))]
+        if not campos_vacios:
+            continue
+        if not any(not _valor_vacio(row.get(col)) for col in df.columns if col not in campos_vacios):
+            continue
+
+        detalle = {col: row.get(col) for col in cols}
+        detalle["Fila"] = int(idx) + 2 if isinstance(idx, int) else str(idx)
+        detalle["Campos vacios"] = ", ".join(campos_vacios)
+        alertas.append(detalle)
+
+    if not alertas:
+        return []
+
+    filas = pd.DataFrame(alertas)
+    if "Fecha" in filas.columns:
+        fechas = pd.to_datetime(filas["Fecha"], dayfirst=True, errors="coerce")
+        if fechas.notna().any():
+            filas["Fecha"] = filas["Fecha"].astype(object)
+            filas.loc[fechas.notna(), "Fecha"] = fechas[fechas.notna()].dt.strftime("%d/%m/%Y")
+
+    filas = _normalizar_dataframe_reporte(filas)
+    return filas.to_dict(orient="records")
+
+
 def detectar_conflictos_suc(df: pd.DataFrame, columnas_reporte: list) -> list:
     """
     Detecta remitos que aparecen con más de un valor de Suc en el DataFrame.
@@ -31,9 +168,12 @@ def detectar_conflictos_suc(df: pd.DataFrame, columnas_reporte: list) -> list:
     filas = filas[cols]
 
     if 'Fecha' in filas.columns:
-        filas['Fecha'] = pd.to_datetime(
-            filas['Fecha'], dayfirst=True
-        ).dt.strftime('%d/%m/%Y')
+        fechas = pd.to_datetime(filas['Fecha'], dayfirst=True, errors="coerce")
+        filas['Fecha'] = ""
+        if fechas.notna().any():
+            filas.loc[fechas.notna(), 'Fecha'] = fechas[fechas.notna()].dt.strftime('%d/%m/%Y')
+
+    filas = _normalizar_dataframe_reporte(filas)
 
     print(f"⚠️ Se encontraron {len(remitos_conflictivos)} remito(s) con Suc inconsistente.")
     return filas.to_dict(orient='records')
@@ -99,6 +239,10 @@ def ejecutar_auditoria_y_exportar(
     output_path: str,
     proveedor: str,
     conflictos_suc: list = None,
+    ean_vacios: list = None,
+    campos_requeridos_vacios: list = None,
+    codigos_barras_no_encontrados: list = None,
+    codigos_barras_completados: list = None,
     sort_by: str = 'REFERENCIA INTERNA',
     encoding: str = 'utf-8-sig',
 ) -> dict:
@@ -111,6 +255,10 @@ def ejecutar_auditoria_y_exportar(
     print(f"📦 Items {proveedor} listos para auditar: {len(items_auditoria)}")
     informe = CegidValidator.auditar_items(items_auditoria)
     informe['conflictos_suc'] = conflictos_suc or []
+    informe['ean_vacios'] = ean_vacios or []
+    informe['campos_requeridos_vacios'] = campos_requeridos_vacios or []
+    informe['codigos_barras_no_encontrados'] = codigos_barras_no_encontrados or []
+    informe['codigos_barras_completados'] = codigos_barras_completados or []
 
     df_out = pd.DataFrame(registros_cegid)
     if sort_by and sort_by in df_out.columns:

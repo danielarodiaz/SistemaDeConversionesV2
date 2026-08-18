@@ -510,6 +510,10 @@ def process_file(provider_id):
             "cambios_precio": [],
             "actualizar_ean": [],
             "conflictos_suc": [],
+            "ean_vacios": [],
+            "campos_requeridos_vacios": [],
+            "codigos_barras_no_encontrados": [],
+            "codigos_barras_completados": [],
             "alertas_sucursales": [],
             "avisos_sucursales": [],
             "avisos_generales": [],
@@ -529,6 +533,10 @@ def process_file(provider_id):
                 or result.get('cambios_precio')
                 or result.get('actualizar_ean')
                 or result.get('conflictos_suc')
+                or result.get('ean_vacios')
+                or result.get('campos_requeridos_vacios')
+                or result.get('codigos_barras_no_encontrados')
+                or result.get('codigos_barras_completados')
                 or result.get('alertas_sucursales')
                 or result.get('avisos_sucursales')
                 or result.get('avisos_generales')

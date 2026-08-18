@@ -2,6 +2,7 @@ import re
 import pandas as pd
 from backend.utils.pedido_helpers import (
     detectar_conflictos_suc,
+    detectar_ean_vacios,
     formatear_precio,
     resolver_establecimiento,
     armar_item_auditoria,
@@ -172,6 +173,7 @@ def process_procer_pedido_proveedor(input_path, output_path):
             return None
 
         conflictos_suc = detectar_conflictos_suc(data, _COLUMNAS_REPORTE)
+        ean_vacios = detectar_ean_vacios(data, _COLUMNAS_REPORTE)
 
         registros_cegid = []
         items_auditoria = []
@@ -251,6 +253,7 @@ def process_procer_pedido_proveedor(input_path, output_path):
             output_path,
             proveedor="PROCER",
             conflictos_suc=conflictos_suc,
+            ean_vacios=ean_vacios,
             sort_by=None,
         )
 

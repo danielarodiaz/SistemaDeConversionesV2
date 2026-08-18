@@ -493,6 +493,24 @@ def _render_audit_results(data: dict) -> None:
         elif not audit.get("sevillanita"):
             st.success("No hay variaciones de precio respecto a CEGID.")
 
+    if audit.get("campos_requeridos_vacios"):
+        df_requeridos = pd.DataFrame(audit["campos_requeridos_vacios"])
+        st.warning(f"⚠️ Se encontraron {len(df_requeridos)} fila(s) con campos requeridos vacíos.")
+        with st.expander("Ver campos requeridos vacíos", expanded=True):
+            st.dataframe(df_requeridos, width="stretch")
+
+    if audit.get("codigos_barras_no_encontrados"):
+        df_sin_barras = pd.DataFrame(audit["codigos_barras_no_encontrados"])
+        st.error(f"🚨 No se pudo encontrar código de barras para {len(df_sin_barras)} artículo(s).")
+        with st.expander("Ver artículos sin código de barras en CEGID", expanded=True):
+            st.dataframe(df_sin_barras, width="stretch")
+
+    if audit.get("codigos_barras_completados"):
+        df_barras_completadas = pd.DataFrame(audit["codigos_barras_completados"])
+        st.info(f"Se completaron {len(df_barras_completadas)} EAN único(s) desde CEGID.")
+        with st.expander("Ver EAN completados desde CEGID"):
+            st.dataframe(df_barras_completadas, width="stretch")
+
     # Conflictos de Suc (común a todos)
     if audit.get('conflictos_suc'):
         df_conflictos = pd.DataFrame(audit['conflictos_suc'])

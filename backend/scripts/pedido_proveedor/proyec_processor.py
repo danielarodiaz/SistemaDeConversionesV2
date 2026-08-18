@@ -8,6 +8,7 @@ from backend.database import SessionLocal
 from backend.models import Sucursal
 from backend.utils.pedido_helpers import (
     detectar_conflictos_suc,
+    detectar_ean_vacios,
     formatear_precio,
     resolver_establecimiento,
     armar_item_auditoria,
@@ -198,6 +199,7 @@ def process_proyec_pedido_proveedor(input_path: str, output_path: str) -> dict |
 
         data["Suc"] = data[col_cliente].apply(_extraer_suc_para_conflicto)
         conflictos_suc = detectar_conflictos_suc(data, _COLUMNAS_REPORTE)
+        ean_vacios = detectar_ean_vacios(data, _COLUMNAS_REPORTE)
 
         codigos_sucursales = _obtener_codigos_sucursales()
         alertas_sucursales = {}
@@ -281,6 +283,7 @@ def process_proyec_pedido_proveedor(input_path: str, output_path: str) -> dict |
             output_path,
             proveedor="PROYEC",
             conflictos_suc=conflictos_suc,
+            ean_vacios=ean_vacios,
             sort_by="REFERENCIA INTERNA",
         )
 

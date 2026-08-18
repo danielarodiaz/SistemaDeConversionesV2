@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from backend.utils.pedido_helpers import (
     formatear_precio, resolver_establecimiento, armar_item_auditoria,
+    detectar_ean_vacios,
 )
 from backend.services.validator import CegidValidator
 from backend.utils.cegid_utils import obtener_codigo_barra
@@ -85,6 +86,13 @@ def process_adidas_pedido_proveedor(input_path, output_path):
     df = df[df['Status de pedido'] == 'Pedido Facturado']
     df = df[df['Payer'].isin([7300000357, 7300000658])]
     df.sort_values(by=['Material'], inplace=True)
+    ean_vacios = detectar_ean_vacios(
+        df,
+        [
+            'Delivery', 'Invoice Date', 'Payer', 'Material', 'Size',
+            'Descripción', 'EAN', 'Quantity', 'Unit Price',
+        ],
+    )
 
     items_auditoria = []
     registros_cegid = []
@@ -141,6 +149,7 @@ def process_adidas_pedido_proveedor(input_path, output_path):
 
     print(f"📦 Items Adidas listos para auditar: {len(items_auditoria)}")
     informe = CegidValidator.auditar_items(items_auditoria)
+    informe['ean_vacios'] = ean_vacios
 
     # Partición de lotes + formateo de precio antes de exportar
     df_transformado = pd.DataFrame(registros_cegid)

@@ -3,6 +3,7 @@ import os
 import re
 import math
 from datetime import datetime
+from backend.utils.pedido_helpers import detectar_ean_vacios
 
 def normalizar_nombre_columna(col_name):
     """Normaliza el nombre de columna para comparación flexible."""
@@ -216,6 +217,17 @@ def process_nike_propuesta_compra(input_path, output_path):
             error_msg = f"❌ Columnas requeridas no encontradas: {', '.join(columnas_faltantes)}"
             print(error_msg)
             raise ValueError(error_msg)
+
+        columnas_reporte_ean = [
+            col_pedido_venta,
+            col_fec_creacion,
+            col_nombre_solicitante,
+            col_upc,
+            col_alocado_p,
+            col_importe_u,
+            col_fec_entrega,
+        ]
+        ean_vacios = detectar_ean_vacios(df, columnas_reporte_ean, columnas_ean=[col_upc])
         
         transformed_data = []
         
@@ -323,7 +335,7 @@ def process_nike_propuesta_compra(input_path, output_path):
             # Exportar
             transformed_df.to_csv(output_path, index=False, sep="|", encoding="utf-8-sig")
             print(f"✅ Archivo generado correctamente en: {output_path}")
-            return output_path
+            return {"output_path": output_path, "ean_vacios": ean_vacios}
             
         else:
             print("⚠️ No se generaron datos válidos para exportar.")
