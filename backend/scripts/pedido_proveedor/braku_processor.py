@@ -2,6 +2,7 @@ import pandas as pd
 from backend.utils.pedido_helpers import (
     detectar_conflictos_suc, formatear_precio, resolver_establecimiento,
     resolver_descuento, armar_item_auditoria, ejecutar_auditoria_y_exportar,
+    detectar_ean_vacios,
 )
 
 _COLUMNAS_REPORTE = [
@@ -33,6 +34,7 @@ def process_braku_pedido_proveedor(input_path: str, output_path: str) -> dict:
     try:
         data = pd.read_excel(input_path)
         conflictos_suc = detectar_conflictos_suc(data, _COLUMNAS_REPORTE)
+        ean_vacios = detectar_ean_vacios(data, _COLUMNAS_REPORTE)
 
         registros_cegid = []
         items_auditoria = []
@@ -92,6 +94,7 @@ def process_braku_pedido_proveedor(input_path: str, output_path: str) -> dict:
         return ejecutar_auditoria_y_exportar(
             items_auditoria, registros_cegid, output_path,
             proveedor='BRAKU', conflictos_suc=conflictos_suc,
+            ean_vacios=ean_vacios,
             sort_by='REFERENCIA INTERNA',
         )
 

@@ -3,6 +3,7 @@ import os
 import re
 import math
 from datetime import datetime
+from backend.utils.pedido_helpers import detectar_ean_vacios
 
 def parsear_fecha(fecha_str):
     meses_es = {
@@ -64,6 +65,14 @@ def formatear_talle(talle):
 def process_adidas_propuesta_compra(input_path, output_path):
     try:
         data = pd.read_excel(input_path, skiprows=4, dtype=str)
+        ean_vacios = detectar_ean_vacios(
+            data,
+            [
+                'SAP Order number', 'Order creation date', 'Requested Delivery Date',
+                'Requested On Shelf Date(s)', 'Article ID', 'Size', 'EAN',
+                'Total quantity', 'Rejected', 'LP', 'Sold To',
+            ],
+        )
         transformed_data = []
 
         for _, row in data.iterrows():
@@ -156,9 +165,11 @@ def process_adidas_propuesta_compra(input_path, output_path):
             # Exportar
             transformed_df.to_csv(output_path, index=False, sep="|", encoding="utf-8-sig")
             print(f"✅ Archivo generado correctamente en: {output_path}")
+            return {"output_path": output_path, "ean_vacios": ean_vacios}
 
         else:
             print("⚠️ No se generaron datos válidos para exportar.")
+            return {"output_path": output_path, "ean_vacios": ean_vacios}
 
     except Exception as e:
         print(f"❌ Error al procesar el archivo: {e}")

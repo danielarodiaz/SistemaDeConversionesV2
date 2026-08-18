@@ -3,7 +3,7 @@ import re
 import os
 from backend.utils.pedido_helpers import (
     formatear_precio, resolver_establecimiento,
-    armar_item_auditoria, ejecutar_auditoria_y_exportar,
+    armar_item_auditoria, ejecutar_auditoria_y_exportar, detectar_ean_vacios,
 )
 
 # Constantes
@@ -43,6 +43,13 @@ def process_puma_pedido_proveedor(input_path, output_path):
 
     df = pd.read_csv(input_path, sep=';', header=0, dtype=str)
     df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
+    ean_vacios = detectar_ean_vacios(
+        df,
+        [
+            'Remito', 'Codigo de EAN', 'Articulo', 'Modelo', 'Color',
+            'Talle', 'Genero', 'Unidades', 'Precio', 'Nombre',
+        ],
+    )
 
     registros_cegid = []
     items_auditoria = []
@@ -94,5 +101,5 @@ def process_puma_pedido_proveedor(input_path, output_path):
 
     return ejecutar_auditoria_y_exportar(
         items_auditoria, registros_cegid, output_path,
-        proveedor='Puma', encoding=None,
+        proveedor='Puma', ean_vacios=ean_vacios, encoding=None,
     )
