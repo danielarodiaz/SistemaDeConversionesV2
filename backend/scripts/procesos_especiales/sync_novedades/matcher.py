@@ -1,4 +1,5 @@
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import pandas as pd
@@ -221,6 +222,10 @@ def _same_effective_value(field: str, old_value: str, new_value: str) -> bool:
         old_date = parse_date_value(old_value)
         new_date = parse_date_value(new_value)
         return old_date is not None and new_date is not None and old_date.date() == new_date.date()
+    if field == "VD":
+        old_amount = _parse_money_value(old_value)
+        new_amount = _parse_money_value(new_value)
+        return old_amount is not None and new_amount is not None and old_amount == new_amount
     return _canonical_text(old_value) == _canonical_text(new_value)
 
 
@@ -249,6 +254,43 @@ def _format_valor_declarado(value: Any) -> str:
         return text.replace(".", ",")
 
     return text
+
+
+def _parse_money_value(value: Any) -> Decimal | None:
+    text = _clean(value)
+    if not text:
+        return None
+
+    text = (
+        text.replace("$", "")
+        .replace("\u00a0", "")
+        .replace(" ", "")
+        .strip()
+    )
+    if not text:
+        return None
+
+    comma_pos = text.rfind(",")
+    dot_pos = text.rfind(".")
+
+    if comma_pos >= 0 and dot_pos >= 0:
+        if comma_pos > dot_pos:
+            normalized = text.replace(".", "").replace(",", ".")
+        else:
+            normalized = text.replace(",", "")
+    elif comma_pos >= 0:
+        decimals = len(text) - comma_pos - 1
+        normalized = text.replace(",", ".") if decimals in {1, 2} else text.replace(",", "")
+    elif dot_pos >= 0:
+        decimals = len(text) - dot_pos - 1
+        normalized = text if decimals in {1, 2} else text.replace(".", "")
+    else:
+        normalized = text
+
+    try:
+        return Decimal(normalized).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        return None
 
 
 def _clean(value: Any) -> str:
