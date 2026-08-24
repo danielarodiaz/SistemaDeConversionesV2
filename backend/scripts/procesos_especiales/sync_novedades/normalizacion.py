@@ -16,6 +16,7 @@ def normalize_text(value: Any) -> str:
     text = re.sub(r"[^A-Z0-9&\-\s]", " ", text)
     text = re.sub(r"\bS\s*A\b", "SA", text)
     text = re.sub(r"\bS\s*R\s*L\b", "SRL", text)
+    text = re.sub(r"\bARGENTINA\b", "ARG", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
