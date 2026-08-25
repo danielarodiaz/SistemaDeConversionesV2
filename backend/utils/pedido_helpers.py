@@ -9,7 +9,13 @@ y empaquetado en ZIP cuando hay variaciones de precio.
 import os
 import zipfile
 import pandas as pd
+from backend.database import SessionLocal, engine
+from backend.models import AuditoriaPromo
 from backend.services.validator import CegidValidator
+from backend.utils.cegid_utils import (
+    obtener_articulos_por_codigos_barras,
+    obtener_promos_por_codigos_articulo,
+)
 
 
 def _normalizar_valor_reporte(valor):
@@ -233,6 +239,89 @@ def armar_item_auditoria(barras: str, articulo: str, precio_float: float, detall
     }
 
 
+def auditar_promos_articulos(
+    codigos_articulo: list | None = None,
+    codigos_barras: list | None = None,
+    proveedor: str | None = None,
+    origen: str | None = None,
+) -> list:
+    """
+    Detecta articulos con GA_LIBREART6 distinto de N/A y los registra una sola vez.
+    """
+    codigos = {
+        str(codigo).strip()
+        for codigo in (codigos_articulo or [])
+        if codigo is not None and str(codigo).strip()
+    }
+
+    barras = [
+        str(codigo).strip()
+        for codigo in (codigos_barras or [])
+        if codigo is not None and str(codigo).strip()
+    ]
+    if barras:
+        codigos.update(obtener_articulos_por_codigos_barras(barras).values())
+
+    promos = obtener_promos_por_codigos_articulo(sorted(codigos))
+    if not promos:
+        return []
+
+    alertas = []
+    for item in sorted(promos.values(), key=lambda value: value["codigo_articulo"]):
+        alerta = {
+            "Articulo": item["codigo_articulo"],
+            "Descripcion": item.get("descripcion", ""),
+            "Promo": item.get("promo", ""),
+        }
+        if proveedor:
+            alerta["Proveedor"] = proveedor
+        if origen:
+            alerta["Origen"] = origen
+        alertas.append(alerta)
+
+    _registrar_auditoria_promos(alertas, proveedor=proveedor, origen=origen)
+    return alertas
+
+
+def _registrar_auditoria_promos(alertas: list, proveedor: str | None, origen: str | None) -> None:
+    if not alertas:
+        return
+
+    try:
+        AuditoriaPromo.__table__.create(bind=engine, checkfirst=True)
+        db = SessionLocal()
+        try:
+            for alerta in alertas:
+                codigo_articulo = str(alerta.get("Articulo", "")).strip()
+                promo = str(alerta.get("Promo", "")).strip()
+                if not codigo_articulo or not promo:
+                    continue
+
+                existente = (
+                    db.query(AuditoriaPromo)
+                    .filter(AuditoriaPromo.codigo_articulo == codigo_articulo)
+                    .one_or_none()
+                )
+                if existente:
+                    existente.descripcion = str(alerta.get("Descripcion", "")).strip()
+                    existente.promo = promo
+                    existente.proveedor = proveedor
+                    existente.origen = origen
+                else:
+                    db.add(AuditoriaPromo(
+                        codigo_articulo=codigo_articulo,
+                        descripcion=str(alerta.get("Descripcion", "")).strip(),
+                        promo=promo,
+                        proveedor=proveedor,
+                        origen=origen,
+                    ))
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"Error registrando auditoria de promos: {e}")
+
+
 def ejecutar_auditoria_y_exportar(
     items_auditoria: list,
     registros_cegid: list,
@@ -254,6 +343,16 @@ def ejecutar_auditoria_y_exportar(
     """
     print(f"📦 Items {proveedor} listos para auditar: {len(items_auditoria)}")
     informe = CegidValidator.auditar_items(items_auditoria)
+    informe['alertas_promos'] = auditar_promos_articulos(
+        codigos_articulo=[item.get('articulo') for item in items_auditoria],
+        codigos_barras=[item.get('barras') for item in items_auditoria],
+        proveedor=proveedor,
+        origen='PEDIDO_PROVEEDOR',
+    )
+    if items_auditoria and not informe['alertas_promos']:
+        informe.setdefault('avisos_generales', []).append(
+            "Todos los articulos chequeados tienen promo N/A."
+        )
     informe['conflictos_suc'] = conflictos_suc or []
     informe['ean_vacios'] = ean_vacios or []
     informe['campos_requeridos_vacios'] = campos_requeridos_vacios or []

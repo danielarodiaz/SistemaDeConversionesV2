@@ -120,3 +120,23 @@ BEGIN
     CREATE INDEX IX_auditoria_matches_estado ON dbo.auditoria_matches(estado);
 END
 GO
+
+IF OBJECT_ID(N'dbo.auditoria_promos', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.auditoria_promos (
+        id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        codigo_articulo VARCHAR(100) NOT NULL,
+        descripcion VARCHAR(255) NULL,
+        promo VARCHAR(100) NOT NULL,
+        proveedor VARCHAR(100) NULL,
+        origen VARCHAR(50) NULL,
+        created_at DATETIME NOT NULL DEFAULT GETUTCDATE(),
+        updated_at DATETIME NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT UQ_auditoria_promos_codigo_articulo UNIQUE (codigo_articulo)
+    );
+    CREATE INDEX IX_auditoria_promos_codigo_articulo ON dbo.auditoria_promos(codigo_articulo);
+    CREATE INDEX IX_auditoria_promos_promo ON dbo.auditoria_promos(promo);
+    CREATE INDEX IX_auditoria_promos_proveedor ON dbo.auditoria_promos(proveedor);
+    CREATE INDEX IX_auditoria_promos_origen ON dbo.auditoria_promos(origen);
+END
+GO

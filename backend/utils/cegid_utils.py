@@ -234,6 +234,111 @@ def obtener_costos_por_codigos_barras(codigos_barras: List[str]) -> Dict[str, Tu
             conexion.close()
 
 
+def obtener_articulos_por_codigos_barras(codigos_barras: List[str]) -> Dict[str, str]:
+    """
+    Devuelve {codigo_barra: codigo_articulo} para resolver archivos que solo traen EAN.
+    """
+    if not codigos_barras:
+        return {}
+
+    valores = [str(cb).strip() for cb in codigos_barras if cb is not None and str(cb).strip()]
+    valores = list(dict.fromkeys(valores))
+
+    if not valores or _cegid_deshabilitado():
+        return {}
+
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return {}
+
+        cursor = conexion.cursor()
+        resultados: Dict[str, str] = {}
+        chunk_size = 900
+        for i in range(0, len(valores), chunk_size):
+            chunk = valores[i:i + chunk_size]
+            placeholders = ",".join(["?"] * len(chunk))
+            query = f"""
+                SELECT GA_CODEBARRE, GA_CODEARTICLE
+                FROM ARTICLE
+                WHERE GA_CODEBARRE IN ({placeholders})
+            """
+            cursor.execute(query, chunk)
+            for row in cursor.fetchall():
+                codigo_barra = str(row[0]).strip() if row[0] is not None else ""
+                codigo_articulo = str(row[1]).strip() if row[1] is not None else ""
+                if codigo_barra and codigo_articulo:
+                    resultados.setdefault(codigo_barra, codigo_articulo)
+
+        return resultados
+
+    except Exception as e:
+        print(f"Error obteniendo articulos por codigo de barras en CEGID: {e}")
+        return {}
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
+def obtener_promos_por_codigos_articulo(codigos_articulo: List[str]) -> Dict[str, dict]:
+    """
+    Consulta GA_LIBREART6 en ARTICLE y devuelve solo articulos con promo distinta de N/A.
+    """
+    if not codigos_articulo:
+        return {}
+
+    valores = [str(cod).strip() for cod in codigos_articulo if cod is not None and str(cod).strip()]
+    valores = list(dict.fromkeys(valores))
+
+    if not valores or _cegid_deshabilitado():
+        return {}
+
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return {}
+
+        cursor = conexion.cursor()
+        resultados: Dict[str, dict] = {}
+        chunk_size = 900
+        for i in range(0, len(valores), chunk_size):
+            chunk = valores[i:i + chunk_size]
+            placeholders = ",".join(["?"] * len(chunk))
+            query = f"""
+                SELECT DISTINCT
+                    GA_CODEARTICLE,
+                    GA_LIBELLE,
+                    GA_LIBREART6
+                FROM ARTICLE
+                WHERE GA_CODEARTICLE IN ({placeholders})
+                  AND NULLIF(LTRIM(RTRIM(GA_LIBREART6)), '') IS NOT NULL
+                  AND UPPER(LTRIM(RTRIM(GA_LIBREART6))) <> 'N/A'
+            """
+            cursor.execute(query, chunk)
+            for row in cursor.fetchall():
+                codigo_articulo = str(row[0]).strip() if row[0] is not None else ""
+                descripcion = str(row[1]).strip() if row[1] is not None else ""
+                promo = str(row[2]).strip() if row[2] is not None else ""
+                if codigo_articulo and promo:
+                    resultados.setdefault(
+                        codigo_articulo,
+                        {
+                            "codigo_articulo": codigo_articulo,
+                            "descripcion": descripcion,
+                            "promo": promo,
+                        },
+                    )
+
+        return resultados
+
+    except Exception as e:
+        print(f"Error obteniendo promos por articulo en CEGID: {e}")
+        return {}
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
 def obtener_codigos_cruzar_articulos(pares_codigo_barra: List[Tuple[str, str]]) -> Dict[Tuple[str, str], str]:
     """
     Cruza codigo de articulo + codigo de barra contra CEGID y devuelve GA_ARTICLE.
