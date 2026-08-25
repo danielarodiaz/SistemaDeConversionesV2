@@ -185,6 +185,22 @@ class SyncNovedadesProveedorMatch(Base):
     metodo = Column(String(20), default='FUZZY', nullable=False)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
+
+class AuditoriaPromo(Base):
+    __tablename__ = 'auditoria_promos'
+    __table_args__ = (
+        UniqueConstraint('codigo_articulo', name='uq_auditoria_promos_codigo_articulo'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    codigo_articulo = Column(String(100), nullable=False, index=True)
+    descripcion = Column(String(255))
+    promo = Column(String(100), nullable=False, index=True)
+    proveedor = Column(String(100), index=True)
+    origen = Column(String(50), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
 #Tablas de ABM articulos  
 class año(Base):
     __tablename__ = 'años'

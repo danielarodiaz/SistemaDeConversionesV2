@@ -1,6 +1,8 @@
 import os
 import sys
 import zipfile
+import csv
+import io
 
 # ── Path setup: debe ir PRIMERO para que todos los imports de backend.* funcionen
 # tanto al ejecutar como script (py backend/app.py) como al importar como módulo.
@@ -12,7 +14,7 @@ from flask_cors import CORS
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
-from backend.utils.pedido_helpers import generar_zip_con_variaciones
+from backend.utils.pedido_helpers import auditar_promos_articulos, generar_zip_con_variaciones
 from backend.database import DB_AUTH_TYPE, DB_HOST, DB_NAME, _HOSTNAME
 from backend.services.auditoria_service import AuditoriaService
 from backend.scripts.abm_articulos.service import (
@@ -454,6 +456,61 @@ EXPECTED_INPUT_EXT = {
     "sevillanita":      ".xlsx",
 }
 
+AUDITORIA_PROMOS_PROVIDER_KEYS = {
+    "adidas",
+    "bestsox",
+    "braku",
+    "diadora",
+    "johnfoos",
+    "kdy",
+    "kosiuko",
+    "leuru",
+    "procer",
+    "proyec",
+    "puma",
+    "saucony",
+    "topper",
+    "adidas_propuesta",
+    "nike",
+    "puma_propuesta",
+    "topper_propuesta",
+}
+
+
+def _origen_auditoria_promos(provider_key: str) -> str:
+    return "PROPUESTA_COMPRA" if provider_key.endswith("_propuesta") or provider_key == "nike" else "PEDIDO_PROVEEDOR"
+
+
+def _leer_codigos_barras_de_salida(path: str) -> list:
+    if not path or not os.path.exists(path):
+        return []
+
+    codigos = []
+
+    def cargar_filas(file_obj):
+        reader = csv.DictReader(file_obj, delimiter="|")
+        for row in reader:
+            codigo = (row.get("CODIGO BARRAS") or row.get("Codigo Barras") or "").strip()
+            if codigo:
+                codigos.append(codigo)
+
+    try:
+        if path.lower().endswith(".zip"):
+            with zipfile.ZipFile(path) as zf:
+                for name in zf.namelist():
+                    if not name.lower().endswith(".csv"):
+                        continue
+                    with zf.open(name) as raw:
+                        text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
+                        cargar_filas(text)
+        else:
+            with open(path, newline="", encoding="utf-8-sig") as file_obj:
+                cargar_filas(file_obj)
+    except Exception as e:
+        print(f"Error leyendo codigos de barras para auditoria de promos: {e}")
+
+    return list(dict.fromkeys(codigos))
+
 
 @app.route('/api/process/<provider_id>', methods=['POST'])
 def process_file(provider_id):
@@ -503,12 +560,21 @@ def process_file(provider_id):
     try:
         processor_input = input_paths if provider_key == "sevillanita" else input_path
         result = processor_func(processor_input, output_path)
+        result_output_path = output_path
+
+        if isinstance(result, str):
+            result_output_path = result
+            output_filename = os.path.basename(result)
+            result = {"output_path": result}
+        elif isinstance(result, dict) and result.get("output_path"):
+            result_output_path = result["output_path"]
 
         # Detectar si el resultado contiene datos de auditoría
         audit_report = {
             "faltantes": [],
             "cambios_precio": [],
             "actualizar_ean": [],
+            "alertas_promos": [],
             "conflictos_suc": [],
             "ean_vacios": [],
             "campos_requeridos_vacios": [],
@@ -523,6 +589,24 @@ def process_file(provider_id):
         message = None
         archivos_extra = []
 
+        ya_audito_promos = isinstance(result, dict) and "alertas_promos" in result
+        if provider_key in AUDITORIA_PROMOS_PROVIDER_KEYS and not ya_audito_promos:
+            codigos_barras_promos = _leer_codigos_barras_de_salida(result_output_path)
+            alertas_promos = auditar_promos_articulos(
+                codigos_barras=codigos_barras_promos,
+                proveedor=provider_id.upper(),
+                origen=_origen_auditoria_promos(provider_key),
+            )
+            if not isinstance(result, dict):
+                result = {}
+            if alertas_promos:
+                result["alertas_promos"] = alertas_promos
+            elif codigos_barras_promos:
+                result.setdefault("alertas_promos", [])
+                result.setdefault("avisos_generales", []).append(
+                    "Todos los articulos chequeados tienen promo N/A."
+                )
+
         if isinstance(result, dict):
             message = result.get('mensaje')
             archivos_extra = result.get('archivos_extra') or []
@@ -532,6 +616,7 @@ def process_file(provider_id):
                 result.get('faltantes')
                 or result.get('cambios_precio')
                 or result.get('actualizar_ean')
+                or result.get('alertas_promos')
                 or result.get('conflictos_suc')
                 or result.get('ean_vacios')
                 or result.get('campos_requeridos_vacios')

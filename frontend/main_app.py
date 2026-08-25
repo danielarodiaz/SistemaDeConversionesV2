@@ -493,6 +493,13 @@ def _render_audit_results(data: dict) -> None:
         elif not audit.get("sevillanita"):
             st.success("No hay variaciones de precio respecto a CEGID.")
 
+        if audit.get("alertas_promos"):
+            df_promos = pd.DataFrame(audit["alertas_promos"])
+            articulos_promo = df_promos["Articulo"].nunique() if "Articulo" in df_promos.columns else len(df_promos)
+            st.warning(f"Se detectaron {articulos_promo} artículo(s) con promo activa en CEGID.")
+            with st.expander("Ver artículos con promo activa", expanded=True):
+                st.dataframe(df_promos, width="stretch")
+
     if audit.get("campos_requeridos_vacios"):
         df_requeridos = pd.DataFrame(audit["campos_requeridos_vacios"])
         st.warning(f"⚠️ Se encontraron {len(df_requeridos)} fila(s) con campos requeridos vacíos.")
