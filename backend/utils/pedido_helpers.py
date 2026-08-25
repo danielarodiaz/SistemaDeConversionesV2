@@ -248,21 +248,12 @@ def auditar_promos_articulos(
     """
     Detecta articulos con GA_LIBREART6 distinto de N/A y los registra una sola vez.
     """
-    codigos = {
-        str(codigo).strip()
-        for codigo in (codigos_articulo or [])
-        if codigo is not None and str(codigo).strip()
-    }
+    codigos = resolver_codigos_articulo_para_auditoria_promos(
+        codigos_articulo=codigos_articulo,
+        codigos_barras=codigos_barras,
+    )
 
-    barras = [
-        str(codigo).strip()
-        for codigo in (codigos_barras or [])
-        if codigo is not None and str(codigo).strip()
-    ]
-    if barras:
-        codigos.update(obtener_articulos_por_codigos_barras(barras).values())
-
-    promos = obtener_promos_por_codigos_articulo(sorted(codigos))
+    promos = obtener_promos_por_codigos_articulo(codigos)
     if not promos:
         return []
 
@@ -281,6 +272,38 @@ def auditar_promos_articulos(
 
     _registrar_auditoria_promos(alertas, proveedor=proveedor, origen=origen)
     return alertas
+
+
+def resolver_codigos_articulo_para_auditoria_promos(
+    codigos_articulo: list | None = None,
+    codigos_barras: list | None = None,
+) -> list:
+    """
+    Devuelve codigos de articulo unicos para auditar promo.
+    Si hay codigos de barra, prioriza el articulo real resuelto en CEGID.
+    """
+    barras = []
+    for codigo in codigos_barras or []:
+        codigo_limpio = str(codigo or "").strip()
+        if not codigo_limpio or codigo_limpio.upper().startswith("FALTA"):
+            continue
+        barras.append(codigo_limpio)
+
+    if barras:
+        codigos_resueltos = {
+            str(codigo).strip()
+            for codigo in obtener_articulos_por_codigos_barras(barras).values()
+            if codigo is not None and str(codigo).strip()
+        }
+        if codigos_resueltos:
+            return sorted(codigos_resueltos)
+
+    codigos_template = {
+        str(codigo).strip()
+        for codigo in (codigos_articulo or [])
+        if codigo is not None and str(codigo).strip()
+    }
+    return sorted(codigos_template)
 
 
 def _registrar_auditoria_promos(alertas: list, proveedor: str | None, origen: str | None) -> None:
@@ -343,13 +366,20 @@ def ejecutar_auditoria_y_exportar(
     """
     print(f"📦 Items {proveedor} listos para auditar: {len(items_auditoria)}")
     informe = CegidValidator.auditar_items(items_auditoria)
-    informe['alertas_promos'] = auditar_promos_articulos(
+    codigos_promos_chequeados = resolver_codigos_articulo_para_auditoria_promos(
         codigos_articulo=[item.get('articulo') for item in items_auditoria],
         codigos_barras=[item.get('barras') for item in items_auditoria],
+    )
+    informe['articulos_promos_chequeados'] = [
+        {"Articulo": codigo}
+        for codigo in codigos_promos_chequeados
+    ]
+    informe['alertas_promos'] = auditar_promos_articulos(
+        codigos_articulo=codigos_promos_chequeados,
         proveedor=proveedor,
         origen='PEDIDO_PROVEEDOR',
     )
-    if items_auditoria and not informe['alertas_promos']:
+    if codigos_promos_chequeados and not informe['alertas_promos']:
         informe.setdefault('avisos_generales', []).append(
             "Todos los articulos chequeados tienen promo N/A."
         )
