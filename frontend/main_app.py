@@ -499,6 +499,11 @@ def _render_audit_results(data: dict) -> None:
             st.warning(f"Se detectaron {articulos_promo} artículo(s) con promo activa en CEGID.")
             with st.expander("Ver artículos con promo activa", expanded=True):
                 st.dataframe(df_promos, width="stretch")
+        elif audit.get("articulos_promos_chequeados"):
+            df_promos_ok = pd.DataFrame(audit["articulos_promos_chequeados"])
+            st.info("Todos los articulos chequeados tienen promo N/A.")
+            with st.expander("Ver articulos chequeados por promo"):
+                st.dataframe(df_promos_ok.drop_duplicates(subset=["Articulo"]), width="stretch")
 
     if audit.get("campos_requeridos_vacios"):
         df_requeridos = pd.DataFrame(audit["campos_requeridos_vacios"])
@@ -549,6 +554,8 @@ def _render_audit_results(data: dict) -> None:
     # Botón de descarga (común a todos)
     for aviso in audit.get("avisos_generales", []):
         if aviso != data.get("message"):
+            if aviso == "Todos los articulos chequeados tienen promo N/A." and audit.get("articulos_promos_chequeados"):
+                continue
             st.info(aviso)
 
     sevillanita = audit.get("sevillanita", {})

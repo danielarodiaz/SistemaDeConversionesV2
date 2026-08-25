@@ -14,7 +14,11 @@ from flask_cors import CORS
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
-from backend.utils.pedido_helpers import auditar_promos_articulos, generar_zip_con_variaciones
+from backend.utils.pedido_helpers import (
+    auditar_promos_articulos,
+    generar_zip_con_variaciones,
+    resolver_codigos_articulo_para_auditoria_promos,
+)
 from backend.database import DB_AUTH_TYPE, DB_HOST, DB_NAME, _HOSTNAME
 from backend.services.auditoria_service import AuditoriaService
 from backend.scripts.abm_articulos.service import (
@@ -575,6 +579,7 @@ def process_file(provider_id):
             "cambios_precio": [],
             "actualizar_ean": [],
             "alertas_promos": [],
+            "articulos_promos_chequeados": [],
             "conflictos_suc": [],
             "ean_vacios": [],
             "campos_requeridos_vacios": [],
@@ -592,16 +597,23 @@ def process_file(provider_id):
         ya_audito_promos = isinstance(result, dict) and "alertas_promos" in result
         if provider_key in AUDITORIA_PROMOS_PROVIDER_KEYS and not ya_audito_promos:
             codigos_barras_promos = _leer_codigos_barras_de_salida(result_output_path)
-            alertas_promos = auditar_promos_articulos(
+            codigos_promos_chequeados = resolver_codigos_articulo_para_auditoria_promos(
                 codigos_barras=codigos_barras_promos,
+            )
+            alertas_promos = auditar_promos_articulos(
+                codigos_articulo=codigos_promos_chequeados,
                 proveedor=provider_id.upper(),
                 origen=_origen_auditoria_promos(provider_key),
             )
             if not isinstance(result, dict):
                 result = {}
+            result["articulos_promos_chequeados"] = [
+                {"Articulo": codigo}
+                for codigo in codigos_promos_chequeados
+            ]
             if alertas_promos:
                 result["alertas_promos"] = alertas_promos
-            elif codigos_barras_promos:
+            elif codigos_promos_chequeados:
                 result.setdefault("alertas_promos", [])
                 result.setdefault("avisos_generales", []).append(
                     "Todos los articulos chequeados tienen promo N/A."
@@ -617,6 +629,7 @@ def process_file(provider_id):
                 or result.get('cambios_precio')
                 or result.get('actualizar_ean')
                 or result.get('alertas_promos')
+                or result.get('articulos_promos_chequeados')
                 or result.get('conflictos_suc')
                 or result.get('ean_vacios')
                 or result.get('campos_requeridos_vacios')
