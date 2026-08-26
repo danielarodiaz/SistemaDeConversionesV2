@@ -381,13 +381,18 @@ def _cruzar_archivos(df_sevillanita, df_despachos, nro_factura, fecha_fac, subto
                 alertas.append("+1000kg")
                 resumen["mas_1000kg"] += 1
 
-            diferencia = ""
+            diferencia_tarifa = ""
+            diferencia_seguro = ""
             if despacho is not None:
+                if tarifa_app is not None:
+                    diferencia_tarifa = round(flete - tarifa_app, 2)
+                if seguro_app is not None:
+                    diferencia_seguro = round(seguro - seguro_app, 2)
+
                 if valor_declarado is None:
                     alertas.append("Filas sin valor declarado. No se pudo ver la diferencia")
                     resumen["sin_valor_declarado"] += 1
                 else:
-                    diferencia = round(flete - (tarifa_app or 0.0), 2)
                     if not _son_importes_iguales(flete, tarifa_app) or not _son_importes_iguales(seguro, seguro_app):
                         alertas.append("Diferencia de importes")
                         resumen["diferencias_importe"] += 1
@@ -423,13 +428,14 @@ def _cruzar_archivos(df_sevillanita, df_despachos, nro_factura, fecha_fac, subto
             }
             reporte_row.update({
                 "Valor declarado (app interna)": _format_importe(valor_declarado),
-                "DIFERENCIA": diferencia,
+                "DIFERENCIA TARIFA": diferencia_tarifa,
+                "DIFERENCIA SEGURO": diferencia_seguro,
                 "ESTADO (app interna)": estado_reporte,
                 "Nº de Factura": nro_factura,
                 "Fecha de fac": _format_fecha_yyyymmdd_reporte(fecha_fac),
                 "ALERTA/MOTIVO": ", ".join(alertas),
                 "SUBTOTAL": _format_decimal_reporte(subtotal_novedades),
-                "DIFERENCIA2": _format_decimal_reporte(diferencia2),
+                "DIFERENCIA (VD - SUBTOTAL Novedades)": _format_decimal_reporte(diferencia2),
             })
             filas_reporte.append(reporte_row)
 
