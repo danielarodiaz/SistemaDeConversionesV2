@@ -193,6 +193,136 @@ def formatear_precio(valor) -> str:
     return f"{round(float(valor), 2):.2f}".replace('.', ',')
 
 
+def particionar_por_referencia_y_articulo(
+    df: pd.DataFrame,
+    *,
+    referencia_col: str = "REFERENCIA INTERNA",
+    articulo_col: str | None = None,
+    max_lineas: int = 100,
+    sufijo_template: str = "{ref}/{lote}",
+    columnas_drop: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Divide referencias que superan `max_lineas` sin partir las lineas de un mismo articulo.
+    Si un articulo completo no entra en el lote actual, pasa al lote siguiente.
+    Si un unico articulo supera el limite, queda entero en una sola particion.
+    """
+    if df is None or df.empty or referencia_col not in df.columns:
+        return df
+
+    columnas_drop = columnas_drop or []
+    partes = []
+
+    for ref, grupo in df.groupby(referencia_col, sort=False):
+        if len(grupo) <= max_lineas:
+            partes.append(grupo.copy())
+            continue
+
+        grupos_articulo = _agrupar_lineas_para_particion(grupo, articulo_col)
+        lotes = _armar_lotes_de_grupos(grupos_articulo, max_lineas)
+        lotes = _evitar_lotes_de_un_solo_articulo(lotes, max_lineas)
+
+        for lote_idx, lote_grupos in enumerate(lotes, start=1):
+            lote_df = pd.concat([item["df"] for item in lote_grupos], ignore_index=False).copy()
+            lote_df[referencia_col] = sufijo_template.format(ref=ref, lote=lote_idx)
+            partes.append(lote_df)
+            articulos_lote = len({item["articulo"] for item in lote_grupos})
+            if articulos_lote == 1 and len(lote_df) > max_lineas:
+                print(
+                    f"ADVERTENCIA: Particion {lote_df.iloc[0][referencia_col]} tiene "
+                    f"{len(lote_df)} lineas porque el articulo no se divide."
+                )
+            elif articulos_lote == 1 and len(lotes) > 1:
+                print(
+                    f"ADVERTENCIA: Particion {ref}/{lote_idx} quedo con un solo articulo; "
+                    "no habia combinacion posible sin superar el limite."
+                )
+            print(f"Particion {lote_df.iloc[0][referencia_col]}: {len(lote_df)} lineas")
+
+        print(f"Total de lineas en referencia '{ref}': {len(grupo)}")
+        print(f"Dividido en {len(lotes)} sub-referencias de hasta {max_lineas} lineas.")
+
+    resultado = pd.concat(partes, ignore_index=True)
+    cols_drop = [col for col in columnas_drop if col in resultado.columns]
+    if cols_drop:
+        resultado = resultado.drop(columns=cols_drop)
+    return resultado
+
+
+def _agrupar_lineas_para_particion(grupo: pd.DataFrame, articulo_col: str | None) -> list[dict]:
+    if articulo_col and articulo_col in grupo.columns:
+        return [
+            {"articulo": articulo, "df": articulo_df.copy()}
+            for articulo, articulo_df in grupo.groupby(articulo_col, sort=False)
+        ]
+
+    return [
+        {"articulo": f"__fila_{idx}", "df": fila.to_frame().T}
+        for idx, fila in grupo.iterrows()
+    ]
+
+
+def _armar_lotes_de_grupos(grupos_articulo: list[dict], max_lineas: int) -> list[list[dict]]:
+    lotes = []
+    lote_actual = []
+    lineas_actuales = 0
+
+    for grupo_articulo in grupos_articulo:
+        lineas_grupo = len(grupo_articulo["df"])
+        if lote_actual and lineas_actuales + lineas_grupo > max_lineas:
+            lotes.append(lote_actual)
+            lote_actual = []
+            lineas_actuales = 0
+
+        lote_actual.append(grupo_articulo)
+        lineas_actuales += lineas_grupo
+
+    if lote_actual:
+        lotes.append(lote_actual)
+    return lotes
+
+
+def _evitar_lotes_de_un_solo_articulo(lotes: list[list[dict]], max_lineas: int) -> list[list[dict]]:
+    if len(lotes) <= 1:
+        return lotes
+
+    cambio = True
+    while cambio:
+        cambio = False
+        idx = 0
+        while idx < len(lotes):
+            lote = lotes[idx]
+            if len(lote) != 1:
+                idx += 1
+                continue
+
+            lineas_lote = _contar_lineas_lote(lote)
+
+            if idx > 0 and _contar_lineas_lote(lotes[idx - 1]) + lineas_lote <= max_lineas:
+                lotes[idx - 1].extend(lote)
+                lotes.pop(idx)
+                cambio = True
+                continue
+
+            if idx + 1 < len(lotes) and lotes[idx + 1]:
+                primer_grupo_siguiente = lotes[idx + 1][0]
+                if lineas_lote + len(primer_grupo_siguiente["df"]) <= max_lineas:
+                    lote.append(primer_grupo_siguiente)
+                    lotes[idx + 1].pop(0)
+                    if not lotes[idx + 1]:
+                        lotes.pop(idx + 1)
+                    cambio = True
+                    continue
+
+            idx += 1
+
+    return lotes
+
+
+def _contar_lineas_lote(lote: list[dict]) -> int:
+    return sum(len(item["df"]) for item in lote)
+
+
 def resolver_establecimiento(empresa_str) -> str:
     """
     Retorna '002' si la empresa es Marathon SRL, '001' en cualquier otro caso.

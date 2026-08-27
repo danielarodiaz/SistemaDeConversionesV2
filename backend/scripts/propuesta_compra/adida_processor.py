@@ -1,9 +1,8 @@
 import pandas as pd
 import os
 import re
-import math
 from datetime import datetime
-from backend.utils.pedido_helpers import detectar_ean_vacios
+from backend.utils.pedido_helpers import detectar_ean_vacios, particionar_por_referencia_y_articulo
 
 def parsear_fecha(fecha_str):
     meses_es = {
@@ -123,6 +122,7 @@ def process_adidas_propuesta_compra(input_path, output_path):
                     "ALMACEN": "240001",
                     "ESTABLECIMIENTO": establecimiento,
                     "FECHA ENTREGA": fecha_entrega,
+                    "_ARTICULO_PARTICION": str(row.get('Article ID', '')).strip().replace(" ", ""),
                 }
 
                 transformed_data.append(transformed_row)
@@ -138,29 +138,13 @@ def process_adidas_propuesta_compra(input_path, output_path):
             transformed_df["orden"] = transformed_df["FECHA ENTREGA"].apply(lambda x: x[4:6] + x[2:4] + x[0:2])
             transformed_df = transformed_df.sort_values(by="orden").drop(columns=["orden"])
 
-            # ✅ Dividir dinámicamente si hay más de X líneas
-            max_lineas_por_lote = 115
-            total_lineas = len(transformed_df)
-
-            if total_lineas > max_lineas_por_lote:
-                referencia_original = transformed_df.iloc[0]["REFERENCIA INTERNA"]
-                num_lotes = math.ceil(total_lineas / max_lineas_por_lote)
-
-                base = total_lineas // num_lotes
-                sobrantes = total_lineas % num_lotes
-
-                start = 0
-                for i in range(num_lotes):
-                    # Distribuir 1 sobrante extra a los primeros `sobrantes` lotes
-                    cantidad = base + (1 if i < sobrantes else 0)
-                    end = start + cantidad
-                    actual_ref = f"{referencia_original}/{i + 1}"
-                    transformed_df.iloc[start:end, transformed_df.columns.get_loc("REFERENCIA INTERNA")] = actual_ref
-                    print(f"📦 {actual_ref}: {cantidad} líneas")
-                    start = end
-
-                print(f"🔹 Total de líneas: {total_lineas}")
-                print(f"🔸 Dividido en {num_lotes} sub-referencias equilibradas de ~{base} líneas.")
+            transformed_df = particionar_por_referencia_y_articulo(
+                transformed_df,
+                articulo_col="_ARTICULO_PARTICION",
+                max_lineas=100,
+                sufijo_template="{ref}/{lote}",
+                columnas_drop=["_ARTICULO_PARTICION"],
+            )
                 
             # Exportar
             transformed_df.to_csv(output_path, index=False, sep="|", encoding="utf-8-sig")

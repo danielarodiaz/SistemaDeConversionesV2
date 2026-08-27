@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from backend.utils.pedido_helpers import (
     formatear_precio, resolver_establecimiento, armar_item_auditoria,
-    detectar_ean_vacios,
+    detectar_ean_vacios, particionar_por_referencia_y_articulo,
 )
 from backend.services.validator import CegidValidator
 from backend.utils.cegid_utils import obtener_codigo_barra
@@ -23,35 +23,6 @@ def _convertir_talle(size: str) -> str:
         return 'X' * int(size[:-2]) + 'L'
     m = re.match(r'^[A-Z]+', size)
     return m.group(0) if m else size
-
-
-def _particionar_en_lotes(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Parte grupos de más de 100 líneas respetando cambios de precio.
-    Modifica REFERENCIA INTERNA agregando '/1', '/2', etc.
-    """
-    partes = []
-    for ref, grupo in df.groupby('REFERENCIA INTERNA', sort=False):
-        if len(grupo) <= 100:
-            partes.append(grupo)
-            continue
-        lote = 1
-        chunk = []
-        precio_actual = None
-        for _, fila in grupo.iterrows():
-            if precio_actual is not None and fila['PRECIO'] != precio_actual and len(chunk) > 100:
-                df_chunk = pd.DataFrame(chunk)
-                df_chunk['REFERENCIA INTERNA'] = f'{ref}/{lote}'
-                partes.append(df_chunk)
-                lote += 1
-                chunk = []
-            precio_actual = fila['PRECIO']
-            chunk.append(fila)
-        if chunk:
-            df_chunk = pd.DataFrame(chunk)
-            df_chunk['REFERENCIA INTERNA'] = f'{ref}/{lote}'
-            partes.append(df_chunk)
-    return pd.concat(partes, ignore_index=True)
 
 
 def _generar_entrega_limite(df_final: pd.DataFrame, output_path: str) -> str | None:
@@ -141,6 +112,7 @@ def process_adidas_pedido_proveedor(input_path, output_path):
                 'ALMACEN': '240001',
                 'ESTABLECIMIENTO': establecimiento,
                 'DESCUENTO': 8.15,
+                '_ARTICULO_PARTICION': articulo_limpio,
             })
 
         except Exception as e:
@@ -153,8 +125,14 @@ def process_adidas_pedido_proveedor(input_path, output_path):
 
     # Partición de lotes + formateo de precio antes de exportar
     df_transformado = pd.DataFrame(registros_cegid)
-    df_transformado.sort_values(by=['REFERENCIA INTERNA', 'PRECIO'], inplace=True)
-    df_final = _particionar_en_lotes(df_transformado)
+    df_transformado.sort_values(by=['REFERENCIA INTERNA', '_ARTICULO_PARTICION', 'PRECIO'], inplace=True)
+    df_final = particionar_por_referencia_y_articulo(
+        df_transformado,
+        articulo_col='_ARTICULO_PARTICION',
+        max_lineas=100,
+        sufijo_template='{ref}/{lote}',
+        columnas_drop=['_ARTICULO_PARTICION'],
+    )
     df_final['PRECIO'] = df_final['PRECIO'].apply(formatear_precio)
     entrega_limite_path = _generar_entrega_limite(df_final, output_path)
     df_final.to_csv(output_path, sep='|', index=False)

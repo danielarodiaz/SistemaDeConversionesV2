@@ -1,9 +1,9 @@
 import pandas as pd
 import os
-import math
 import zipfile
 from datetime import datetime
 from backend.utils.cegid_utils import obtener_precios_cegid_por_cod_prov, obtener_codigo_barra_flexible
+from backend.utils.pedido_helpers import particionar_por_referencia_y_articulo
 
 MESES_ES = {
     1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL",
@@ -78,37 +78,28 @@ def process_topper_propuesta_compra(input_path, output_path):
             round(precio, 2),
             "240001",
             establecimiento,
-            fecha_entrega
+            fecha_entrega,
+            material,
         ])
 
     df_final = pd.DataFrame(filas_resultado, columns=[
         "CAB", "REFERENCIA INTERNA", "FECHA DOC", "COD PROVEEDOR",
-        "CODIGO BARRAS", "CANTIDAD", "PRECIO", "ALMACEN", "ESTABLECIMIENTO", "FECHA ENTREGA"
+        "CODIGO BARRAS", "CANTIDAD", "PRECIO", "ALMACEN", "ESTABLECIMIENTO", "FECHA ENTREGA",
+        "_ARTICULO_PARTICION"
     ])
 
     archivos_generados = []
 
     for establecimiento in df_final["ESTABLECIMIENTO"].unique():
         subset = df_final[df_final["ESTABLECIMIENTO"] == establecimiento].copy()
-        total_lineas = len(subset)
-
-        # Subdividir si hay muchas líneas
-        max_lineas_por_lote = 100
-        if total_lineas > max_lineas_por_lote:
-            num_lotes = math.ceil(total_lineas / max_lineas_por_lote)
-            base = total_lineas // num_lotes
-            sobrantes = total_lineas % num_lotes
-            start = 0
-
-            for i in range(num_lotes):
-                cantidad = base + (1 if i < sobrantes else 0)
-                end = start + cantidad
-                ref_actual = f"{referencia_base} - Parte {i+1}"
-                idx = subset.iloc[start:end].index
-                subset.loc[idx, "REFERENCIA INTERNA"] = ref_actual
-                start = end
-        else:
-            subset["REFERENCIA INTERNA"] = referencia_base
+        subset["REFERENCIA INTERNA"] = referencia_base
+        subset = particionar_por_referencia_y_articulo(
+            subset,
+            articulo_col="_ARTICULO_PARTICION",
+            max_lineas=100,
+            sufijo_template="{ref} - Parte {lote}",
+            columnas_drop=["_ARTICULO_PARTICION"],
+        )
 
         filename = f"topper_est_{establecimiento}.csv"
         filepath = os.path.join(os.path.dirname(output_path), filename)
