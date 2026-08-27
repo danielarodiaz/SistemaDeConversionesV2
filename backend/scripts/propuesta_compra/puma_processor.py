@@ -1,9 +1,9 @@
 import pandas as pd
 import os
 import re
-import math
 from datetime import datetime
 from backend.utils.cegid_utils import obtener_codigo_barra
+from backend.utils.pedido_helpers import particionar_por_referencia_y_articulo
 
 def detectar_tipo_producto(nombre_archivo):
     nombre = nombre_archivo.lower()
@@ -175,7 +175,8 @@ def process_puma_propuesta_compra(input_path, output_path):
                             "PRECIO": precio_str,
                             "ALMACEN": "240001",
                             "ESTABLECIMIENTO": establecimiento,
-                            "FECHA ENTREGA": fecha_entrega
+                            "FECHA ENTREGA": fecha_entrega,
+                            "_ARTICULO_PARTICION": cod_articulo,
                         })
                         # Ya procesamos la fila como pelota, no seguimos con la lógica de curvas
                         continue
@@ -261,7 +262,8 @@ def process_puma_propuesta_compra(input_path, output_path):
                             "PRECIO": precio_str,
                             "ALMACEN": "240001",
                             "ESTABLECIMIENTO": establecimiento,
-                            "FECHA ENTREGA": fecha_entrega
+                            "FECHA ENTREGA": fecha_entrega,
+                            "_ARTICULO_PARTICION": cod_articulo,
                         })
 
                 except Exception as e:
@@ -269,49 +271,16 @@ def process_puma_propuesta_compra(input_path, output_path):
                     continue
 
             if filas_hoja:
-                max_lineas_por_lote = 100
-                total_lineas = len(filas_hoja)
-
-                if total_lineas > max_lineas_por_lote:
-                    lotes = []
-                    lote_actual = []
-                    ultimo_precio = None
-
-                    for fila in filas_hoja:
-                        precio_actual = fila["PRECIO"]
-                        supero_limite = len(lote_actual) >= max_lineas_por_lote
-                        cambio_precio = ultimo_precio is not None and precio_actual != ultimo_precio
-
-                        if lote_actual and supero_limite and cambio_precio:
-                            lotes.append(lote_actual)
-                            lote_actual = []
-
-                        lote_actual.append(fila)
-                        ultimo_precio = precio_actual
-
-                    if lote_actual:
-                        lotes.append(lote_actual)
-
-                    # Fallback: si nunca hubo cambio de precio y se superó el límite,
-                    # dividir de forma tradicional para evitar archivos gigantes.
-                    if len(lotes) == 1 and len(lotes[0]) > max_lineas_por_lote:
-                        lotes = [
-                            lotes[0][i : i + max_lineas_por_lote]
-                            for i in range(0, len(lotes[0]), max_lineas_por_lote)
-                        ]
-                        print(f"⚠️ Se forzó división por longitud en hoja '{hoja}' al no detectarse cambio de precio.")
-
-                    for idx, lote in enumerate(lotes, start=1):
-                        nueva_ref = referencia_base if len(lotes) == 1 else f"{referencia_base} Parte {idx}"
-                        for fila in lote:
-                            fila["REFERENCIA INTERNA"] = nueva_ref
-                        print(f"📦 {nueva_ref}: {len(lote)} líneas")
-                    print(f"🔹 Total de líneas en hoja '{hoja}': {total_lineas}")
-                    print(f"🔸 Dividido en {len(lotes)} sub-referencias respetando curvas completas")
-                else:
-                    for fila in filas_hoja:
-                        fila["REFERENCIA INTERNA"] = referencia_base
-                    print(f"✅ Hoja '{hoja}' exportada con referencia: {referencia_base} ({total_lineas} líneas)")
+                df_hoja = pd.DataFrame(filas_hoja)
+                df_hoja = particionar_por_referencia_y_articulo(
+                    df_hoja,
+                    articulo_col="_ARTICULO_PARTICION",
+                    max_lineas=100,
+                    sufijo_template="{ref} Parte {lote}",
+                    columnas_drop=["_ARTICULO_PARTICION"],
+                )
+                filas_hoja = df_hoja.to_dict(orient="records")
+                print(f"✅ Hoja '{hoja}' exportada con {len(filas_hoja)} líneas")
                 todas_las_filas.extend(filas_hoja)
             else:
                 print(f"⚠️ No se encontraron datos válidos para exportar en hoja '{hoja}'.")
