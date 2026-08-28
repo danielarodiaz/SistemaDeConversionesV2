@@ -325,7 +325,8 @@ def abm_articulos_eliminar_borradores():
 @app.route('/api/abm-articulos/exportar', methods=['POST'])
 def abm_articulos_exportar():
     try:
-        result = abm_exportar_borradores()
+        payload = request.get_json(silent=True) or {}
+        result = abm_exportar_borradores(payload.get("ids", []))
         backend_url = os.getenv('BACKEND_URL', 'http://localhost:5000')
         return jsonify({
             "status": "success",

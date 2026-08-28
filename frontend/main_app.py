@@ -3,11 +3,25 @@ import requests
 import os
 import pandas as pd
 import logging
+import math
 import platform
 import sys
 import traceback
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from backend.utils.abm_articulos_reglas import (
+    filtrar_descripciones_talle,
+    filtrar_edades,
+    filtrar_siluetas,
+    tipo_prefijo,
+    tipo_texto_talle,
+    valor_sugerido,
+)
 
 # Carga variables de entorno desde .env si existe
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -166,9 +180,20 @@ def _load_abm_complementarios() -> list:
     return _api_get("/api/abm-articulos/complementarios").get("items", [])
 
 
-def _refresh_abm_listados():
+def _reload_abm_listados():
     _load_abm_borradores.clear()
     _load_abm_complementarios.clear()
+    st.session_state["abm_borradores_items"] = _load_abm_borradores()
+    st.session_state["abm_complementarios_items"] = _load_abm_complementarios()
+
+
+def _ensure_abm_listados_loaded():
+    if "abm_borradores_items" not in st.session_state or "abm_complementarios_items" not in st.session_state:
+        _reload_abm_listados()
+
+
+def _refresh_abm_listados():
+    _reload_abm_listados()
 
 
 def _api_post_file(path: str, file, data=None) -> dict:
@@ -736,50 +761,11 @@ def _dedupe_descripciones(items):
 
 
 def _tipo_prefijo(tipo_sel):
-    codigo = ((tipo_sel or {}).get("codigo") or "").upper()
-    descripcion = ((tipo_sel or {}).get("descripcion") or "").upper()
-    return {
-        "ACC": "ACC",
-        "ACCESORIOS": "ACC",
-        "BIC": "BIC",
-        "BICICLETAS": "BIC",
-        "CAL": "CAL",
-        "CALZADO": "CAL",
-        "CLU": "CLU",
-        "CLUBES": "CLU",
-        "IND": "IND",
-        "INDUMENTARIA": "IND",
-        "MED": "MED",
-        "MEDIAS": "MED",
-        "VER": "CAL",
-        "VERANO": "CAL",
-    }.get(codigo) or {
-        "ACCESORIOS": "ACC",
-        "BICICLETAS": "BIC",
-        "CALZADO": "CAL",
-        "CLUBES": "CLU",
-        "INDUMENTARIA": "IND",
-        "MEDIAS": "MED",
-        "VERANO": "CAL",
-    }.get(descripcion)
+    return tipo_prefijo(tipo_sel)
 
 
 def _tipo_texto_talle(tipo_sel):
-    codigo = ((tipo_sel or {}).get("codigo") or "").upper()
-    descripcion = ((tipo_sel or {}).get("descripcion") or "").upper()
-    return {
-        "ACC": "ACCESORIOS",
-        "BIC": "BICICLETA",
-        "CAL": "CALZADO",
-        "IND": "INDUMENTARIA",
-        "MED": "MEDIAS",
-    }.get(codigo) or {
-        "ACCESORIOS": "ACCESORIOS",
-        "BICICLETAS": "BICICLETA",
-        "CALZADO": "CALZADO",
-        "INDUMENTARIA": "INDUMENTARIA",
-        "MEDIAS": "MEDIAS",
-    }.get(descripcion)
+    return tipo_texto_talle(tipo_sel)
 
 
 def _default_index(items, terms, allow_none=True):
@@ -827,18 +813,11 @@ def _markup_para(marca_sel, tipo_sel, markups):
 
 
 def _siluetas_para_tipo(tipo_sel, siluetas):
-    tipo = ((tipo_sel or {}).get("codigo") or "").upper()
-    if not tipo:
-        return []
-    prefijos = {
-        "ACC": ("ACC",),
-        "CAL": ("CAL",),
-        "IND": ("IND",),
-        "MED": ("MED",),
-        "BIC": ("BIC",),
-    }.get(tipo, (tipo,))
-    filtradas = [s for s in siluetas if (s.get("codigo") or "").upper().startswith(prefijos)]
-    return filtradas or siluetas
+    return filtrar_siluetas(tipo_sel, siluetas)
+
+
+def _edades_para_tipo_genero(tipo_sel, genero_sel, edades):
+    return filtrar_edades(tipo_sel, genero_sel, edades)
 
 
 def _objetivos_para_tipo(tipo_sel, objetivos):
@@ -854,13 +833,8 @@ def _objetivos_para_tipo(tipo_sel, objetivos):
     return n_a or objetivos[:1]
 
 
-def _descripciones_talle_para_tipo(tipo_sel, talles):
-    texto = _tipo_texto_talle(tipo_sel)
-    items = talles
-    if texto:
-        filtrados = [t for t in talles if (t.get("descripcion") or "").upper().startswith(texto)]
-        items = filtrados or talles
-    return _dedupe_descripciones(items)
+def _descripciones_talle_para_reglas(tipo_sel, edad_sel, genero_sel, marca_sel, talles):
+    return filtrar_descripciones_talle(tipo_sel, edad_sel, genero_sel, marca_sel, talles)
 
 
 def _dedupe_talles(talles):
@@ -911,7 +885,13 @@ def _render_abm_articulos() -> None:
     genero_sel = c5.selectbox("Desc. Genero", [None] + catalogos.get("generos", []), format_func=_label, key="abm_genero")
 
     c6, c7, c8, c8b = st.columns(4)
-    edad_sel = c6.selectbox("Desc. Edad", [None] + catalogos.get("edades", []), format_func=_label, key="abm_edad")
+    edades_filtradas = _edades_para_tipo_genero(tipo_sel, genero_sel, catalogos.get("edades", []))
+    if st.session_state.get("abm_edad") not in ([None] + edades_filtradas):
+        st.session_state.pop("abm_edad", None)
+    edad_sel = c6.selectbox("Desc. Edad", [None] + edades_filtradas, format_func=_label, key="abm_edad")
+    valor_sugerido_sel = valor_sugerido(genero_sel, edad_sel, valores_genero)
+    if valor_sugerido_sel and st.session_state.get("abm_valor_genero") != valor_sugerido_sel:
+        st.session_state["abm_valor_genero"] = valor_sugerido_sel
     valor_genero_sel = c7.selectbox("VALOR", [None] + valores_genero, format_func=_label, key="abm_valor_genero")
     siluetas_filtradas = _siluetas_para_tipo(tipo_sel, catalogos.get("siluetas", []))
     silueta_sel = c8.selectbox("Desc. Silueta", [None] + siluetas_filtradas, format_func=_label, key="abm_silueta")
@@ -952,22 +932,55 @@ def _render_abm_articulos() -> None:
     precio_compra = st.number_input("Precio compra", min_value=0.0, step=0.01, format="%.2f", key="abm_precio_compra")
     markup_valor = _markup_para(marca_sel, tipo_sel, catalogos.get("markups", []))
     precio_sugerido = round(precio_compra * markup_valor, 2) if markup_valor else 0.0
-    precio_venta_default = max(precio_sugerido, precio_compra + 0.01) if precio_compra else 0.0
+    precio_venta_default = math.ceil(max(precio_sugerido, precio_compra + 1)) if precio_compra else 0
     precio_venta = st.number_input(
         "Precio venta",
-        min_value=0.0,
-        value=float(precio_venta_default),
-        step=0.01,
-        format="%.2f",
+        min_value=0,
+        value=int(precio_venta_default),
+        step=1,
+        format="%d",
         key="abm_precio_venta",
     )
     if markup_valor:
-        st.caption(f"Markup aplicado: {markup_valor:.4f}. Precio sugerido: {precio_sugerido:.2f}.")
+        st.caption(f"Markup aplicado: {markup_valor:.4f}. Precio sugerido: {math.ceil(precio_sugerido):d}.")
     if precio_compra and precio_venta <= precio_compra:
         st.warning("El precio de venta debe ser mayor al precio de compra.")
 
+    campos_requeridos = {
+        "Codigo": codigo,
+        "Descripcion": descripcion,
+        "Desc. Tipo de Producto": tipo_sel,
+        "Desc. Marca": marca_sel,
+        "Desc. Genero": genero_sel,
+        "Desc. Edad": edad_sel,
+        "VALOR": valor_genero_sel,
+        "Desc. Silueta": silueta_sel,
+        "Desc. Uso": uso_sel,
+        "Desc. Capsula": capsula_sel,
+        "Desc. Division": division_sel,
+        "Desc. Temporada": temporada_sel,
+        "Desc. Material": material_sel,
+        "Desc. Segmentacion Proveedor": seg_prov_sel,
+        "Desc. Segmentacion Marathon": seg_marathon_sel,
+        "Desc. Exhibicion": vidriera_sel,
+        "Desc. Anio": anio_sel,
+        "Desc. Objetivo General": objetivo_sel,
+        "Desc. Color Talle": color_talle,
+        "Desc. Valor Color": valor_color_sel,
+        "Proveedor Habitual": proveedor_sel,
+        "Precio compra": precio_compra,
+        "Precio venta": precio_venta,
+    }
+    campos_faltantes = [
+        nombre for nombre, valor in campos_requeridos.items()
+        if valor is None or (isinstance(valor, str) and not valor.strip()) or valor == 0
+    ]
+    guardar_deshabilitado = bool(campos_faltantes) or bool(precio_compra and precio_venta <= precio_compra)
+    if campos_faltantes:
+        st.caption("Completá todos los campos para habilitar Guardar borrador.")
+
     st.markdown("### Talles")
-    descripciones_talle = _descripciones_talle_para_tipo(tipo_sel, talles)
+    descripciones_talle = _descripciones_talle_para_reglas(tipo_sel, edad_sel, genero_sel, marca_sel, talles)
     if st.session_state.get("abm_desc_talle") not in ([""] + descripciones_talle):
         st.session_state.pop("abm_desc_talle", None)
     desc_talle_sel = st.selectbox("Desc. Talle", [""] + descripciones_talle, key="abm_desc_talle")
@@ -976,6 +989,7 @@ def _render_abm_articulos() -> None:
         st.session_state.pop("abm_talles_df", None)
     talles_filtrados = _dedupe_talles([t for t in talles if t.get("descripcion") == desc_talle_sel])
 
+    guardar_borrador_pressed = False
     if desc_talle_sel:
         rows = []
         for talle in talles_filtrados:
@@ -991,43 +1005,14 @@ def _render_abm_articulos() -> None:
         if "abm_talles_df" not in st.session_state:
             st.session_state["abm_talles_df"] = pd.DataFrame(rows)
 
-        codigos_pegados = st.text_area(
-            "Pegar codigos de barra para talles seleccionados",
-            key="abm_codigos_pegados",
-            height=90,
-            placeholder="Un codigo por linea. Se aplican solo a los talles seleccionados.",
-        )
-        tb1, tb2, tb3, tb4 = st.columns([1, 1, 1, 1])
-        if tb1.button("Seleccionar / deseleccionar", width="stretch", key="abm_talles_toggle_btn"):
-            df_tmp = st.session_state["abm_talles_df"].copy()
-            nuevo_valor = not bool(df_tmp["Seleccionar"].all()) if not df_tmp.empty else True
-            df_tmp["Seleccionar"] = nuevo_valor
-            st.session_state["abm_talles_df"] = df_tmp
-            st.rerun()
-        if tb2.button("Pegar en seleccionados", disabled=not codigos_pegados.strip(), width="stretch", key="abm_talles_paste_btn"):
-            df_tmp = st.session_state["abm_talles_df"].copy()
-            mask = df_tmp["Seleccionar"].fillna(False)
-            codigos = [line.strip() for line in codigos_pegados.splitlines() if line.strip()]
-            indices = df_tmp.index[mask].tolist()
-            for idx, codigo_barra in zip(indices, codigos):
-                df_tmp.at[idx, "codigoBarra"] = codigo_barra
-            st.session_state["abm_talles_df"] = df_tmp
-            st.rerun()
-        if tb3.button("Generar codigos temporales", disabled=not codigo, width="stretch", key="abm_talles_generate_btn"):
-            df_tmp = st.session_state["abm_talles_df"].copy()
-            mask = df_tmp["Seleccionar"].fillna(False)
-            df_tmp.loc[mask, "codigoBarra"] = df_tmp.loc[mask, "Talle"].apply(lambda talle: f"T{codigo}{talle}")
-            st.session_state["abm_talles_df"] = df_tmp
-            st.rerun()
-        if tb4.button("Limpiar codigos de barras", width="stretch", key="abm_talles_clear_btn"):
-            df_tmp = st.session_state["abm_talles_df"].copy()
-            mask = df_tmp["Seleccionar"].fillna(False)
-            df_tmp.loc[mask, "codigoBarra"] = ""
-            st.session_state["abm_talles_df"] = df_tmp
-            st.rerun()
-
         editor_source = st.session_state.get("abm_talles_df", pd.DataFrame(rows))
         with st.form("abm_talles_form"):
+            codigos_pegados = st.text_area(
+                "Pegar codigos de barra para talles seleccionados",
+                key="abm_codigos_pegados",
+                height=90,
+                placeholder="Un codigo por linea. Se aplican solo a los talles seleccionados.",
+            )
             ean_df = st.data_editor(
                 editor_source.drop(columns=["id"], errors="ignore"),
                 hide_index=True,
@@ -1035,17 +1020,70 @@ def _render_abm_articulos() -> None:
                 disabled=["Descripcion", "Talle", "Equiv"],
                 key="abm_talles_editor_widget",
             )
-            aplicar_talles = st.form_submit_button("Aplicar cambios de talles", width="stretch")
-        if aplicar_talles:
-            ean_df.insert(0, "id", editor_source["id"].values)
+            tb1, tb2, tb3, tb4, tb5 = st.columns([1, 1, 1, 1, 1])
+            with tb1:
+                toggle_talles = st.form_submit_button("Seleccionar / deseleccionar", width="stretch", key="abm_talles_toggle_submit")
+            with tb2:
+                pegar_talles = st.form_submit_button("Pegar en seleccionados", width="stretch", key="abm_talles_paste_submit")
+            with tb3:
+                generar_talles = st.form_submit_button("Generar codigos temporales", width="stretch", key="abm_talles_generate_submit")
+            with tb4:
+                limpiar_talles = st.form_submit_button("Limpiar codigos de barras", width="stretch", key="abm_talles_clear_submit")
+            with tb5:
+                guardar_borrador_pressed = st.form_submit_button(
+                    "Guardar borrador",
+                    type="primary",
+                    width="stretch",
+                    disabled=guardar_deshabilitado,
+                    key="abm_talles_save_draft_submit",
+                )
+
+        ean_df.insert(0, "id", editor_source["id"].values)
+        if toggle_talles:
+            nuevo_valor = not bool(ean_df["Seleccionar"].fillna(False).all()) if not ean_df.empty else True
+            ean_df["Seleccionar"] = nuevo_valor
             st.session_state["abm_talles_df"] = ean_df
             st.rerun()
-        else:
-            ean_df = st.session_state["abm_talles_df"]
+        if pegar_talles:
+            mask = ean_df["Seleccionar"].fillna(False)
+            codigos = [line.strip() for line in codigos_pegados.splitlines() if line.strip()]
+            if not codigos:
+                st.warning("Pegá al menos un codigo de barra.")
+            elif not mask.any():
+                st.warning("Selecciona al menos un talle para pegar codigos.")
+            else:
+                indices = ean_df.index[mask].tolist()
+                for idx, codigo_barra in zip(indices, codigos):
+                    ean_df.at[idx, "codigoBarra"] = codigo_barra
+                st.session_state["abm_talles_df"] = ean_df
+                st.rerun()
+        if generar_talles:
+            mask = ean_df["Seleccionar"].fillna(False)
+            if not codigo:
+                st.warning("Completa el codigo del articulo antes de generar codigos temporales.")
+            elif not mask.any():
+                st.warning("Selecciona al menos un talle para generar codigos temporales.")
+            else:
+                ean_df.loc[mask, "codigoBarra"] = ean_df.loc[mask, "Talle"].apply(lambda talle: f"T{codigo}{talle}")
+                st.session_state["abm_talles_df"] = ean_df
+                st.rerun()
+        if limpiar_talles:
+            mask = ean_df["Seleccionar"].fillna(False)
+            if not mask.any():
+                st.warning("Selecciona al menos un talle para limpiar codigos.")
+            else:
+                ean_df.loc[mask, "codigoBarra"] = ""
+                st.session_state["abm_talles_df"] = ean_df
+                st.rerun()
+        if guardar_borrador_pressed:
+            st.session_state["abm_talles_df"] = ean_df
     else:
         ean_df = pd.DataFrame()
 
-    if st.button("Guardar borrador", type="primary", width="stretch", key="abm_guardar_borrador_btn"):
+    if guardar_borrador_pressed:
+        if campos_faltantes:
+            st.warning("Completá todos los campos antes de guardar el borrador.")
+            return
         if not desc_talle_sel:
             st.warning("Selecciona una descripcion de talle.")
             return
@@ -1063,6 +1101,9 @@ def _render_abm_articulos() -> None:
             talles_payload.append(talle)
         if not talles_payload:
             st.warning("Selecciona al menos un talle para crear.")
+            return
+        if any(not str(talle.get("codigoBarra") or "").strip() for talle in talles_payload):
+            st.warning("Todos los talles seleccionados tienen que tener codigo de barra.")
             return
 
         canal_default = next((c for c in catalogos.get("canales", []) if c.get("codigo") == "C0"), None) or (catalogos.get("canales") or [{}])[0]
@@ -1125,7 +1166,8 @@ def _render_abm_articulos() -> None:
     st.divider()
     st.subheader("Borradores pendientes")
     try:
-        borradores = _load_abm_borradores()
+        _ensure_abm_listados_loaded()
+        borradores = st.session_state.get("abm_borradores_items", [])
     except Exception as e:
         st.error(f"No se pudieron cargar los borradores: {e}")
         borradores = []
@@ -1138,7 +1180,7 @@ def _render_abm_articulos() -> None:
             borradores_df.insert(0, "Seleccionar", False)
             st.session_state["abm_borradores_df"] = borradores_df
 
-        bb1, bb2, bb3 = st.columns([1, 1, 2])
+        bb1 = st.columns([1, 3])[0]
         if bb1.button("Seleccionar / deseleccionar", width="stretch", key="abm_borradores_toggle_btn"):
             df_tmp = st.session_state["abm_borradores_df"].copy()
             nuevo_valor = not bool(df_tmp["Seleccionar"].all()) if not df_tmp.empty else True
@@ -1154,14 +1196,18 @@ def _render_abm_articulos() -> None:
                 disabled=[c for c in st.session_state["abm_borradores_df"].drop(columns=["id"], errors="ignore").columns if c != "Seleccionar"],
                 key="abm_borradores_editor_widget",
             )
-            aplicar_borradores = st.form_submit_button("Aplicar seleccion de borradores", width="stretch")
+            bb2, bb3 = st.columns([1, 2])
+            with bb2:
+                borrar_borradores = st.form_submit_button("Eliminar seleccionados", width="stretch", key="abm_borradores_delete_submit")
+            with bb3:
+                exportar_borradores = st.form_submit_button("Exportar borradores", type="primary", width="stretch", key="abm_borradores_export_submit")
         borradores_editor.insert(1, "id", st.session_state["abm_borradores_df"]["id"].values)
-        if aplicar_borradores:
-            st.session_state["abm_borradores_df"] = borradores_editor
-            st.rerun()
         ids_seleccionados = borradores_editor.loc[borradores_editor["Seleccionar"].fillna(False), "id"].tolist()
 
-        if bb2.button("Eliminar seleccionados", disabled=not ids_seleccionados, width="stretch", key="abm_borradores_delete_btn"):
+        if borrar_borradores:
+            if not ids_seleccionados:
+                st.warning("Selecciona al menos un borrador para eliminar.")
+                return
             try:
                 result = _api_delete_json("/api/abm-articulos/borradores", {"ids": ids_seleccionados})
                 st.success(f"Borradores eliminados: {result.get('deleted', 0)}.")
@@ -1171,9 +1217,12 @@ def _render_abm_articulos() -> None:
             except Exception as e:
                 st.error(f"No se pudo eliminar: {e}")
 
-        if bb3.button("Exportar borradores", type="primary", width="stretch", key="abm_borradores_export_btn"):
+        if exportar_borradores:
+            if not ids_seleccionados:
+                st.warning("Selecciona al menos un borrador para exportar.")
+                return
             try:
-                data = _api_post("/api/abm-articulos/exportar")
+                data = _api_post("/api/abm-articulos/exportar", {"ids": ids_seleccionados})
                 download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
                 if download_res.status_code == 200:
                     st.session_state["abm_export_download"] = {
@@ -1204,7 +1253,8 @@ def _render_abm_articulos() -> None:
     st.divider()
     st.subheader("Listado complementario")
     try:
-        complementarios = _load_abm_complementarios()
+        _ensure_abm_listados_loaded()
+        complementarios = st.session_state.get("abm_complementarios_items", [])
     except Exception as e:
         st.error(f"No se pudieron cargar los complementarios: {e}")
         complementarios = []
@@ -1218,7 +1268,7 @@ def _render_abm_articulos() -> None:
         comp_df.insert(0, "Seleccionar", False)
         st.session_state["abm_complementarios_df"] = comp_df
 
-    cb1, cb2, cb3, cb4, cb5 = st.columns([1, 1, 1, 1, 2])
+    cb1 = st.columns([1, 4])[0]
     if cb1.button("Seleccionar / deseleccionar", width="stretch", key="abm_complementarios_toggle_btn"):
         df_tmp = st.session_state["abm_complementarios_df"].copy()
         nuevo_valor = not bool(df_tmp["Seleccionar"].all()) if not df_tmp.empty else True
@@ -1228,13 +1278,12 @@ def _render_abm_articulos() -> None:
 
     editable_comp_cols = {
         "Seleccionar",
-        "ID Articulo",
         "Edad",
         "Material",
         "Segmentacion Proveedor",
         "Segmentacion Marathon",
         "Vidriera",
-        "AÃ±o",
+        "Año",
         "Objetivo Gen",
     }
     with st.form("abm_complementarios_form"):
@@ -1248,18 +1297,21 @@ def _render_abm_articulos() -> None:
             ],
             key="abm_complementarios_editor_widget",
         )
-        aplicar_complementarios = st.form_submit_button("Aplicar cambios complementarios", width="stretch")
+        cb2, cb3, cb4 = st.columns([1, 1, 2])
+        with cb2:
+            guardar_complementarios = st.form_submit_button("Guardar cambios", width="stretch", key="abm_complementarios_save_submit")
+        with cb3:
+            borrar_complementarios = st.form_submit_button("Borrar seleccionados", width="stretch", key="abm_complementarios_delete_submit")
+        with cb4:
+            exportar_complementarios = st.form_submit_button("Descargar complementario", type="primary", width="stretch", key="abm_complementarios_export_submit")
     comp_editor.insert(1, "id", st.session_state["abm_complementarios_df"]["id"].values)
-    if aplicar_complementarios:
-        st.session_state["abm_complementarios_df"] = comp_editor
-        st.rerun()
     comp_ids_seleccionados = comp_editor.loc[comp_editor["Seleccionar"].fillna(False), "id"].tolist()
 
-    if cb2.button("Guardar cambios", width="stretch", key="abm_complementarios_save_btn"):
+    if guardar_complementarios:
         try:
             originales = pd.DataFrame(complementarios).set_index("id")
             cambios = comp_editor.set_index("id")
-            campos_editables = ["ID Articulo", "Edad", "Material", "Segmentacion Proveedor", "Segmentacion Marathon", "Vidriera", "AÃ±o", "Objetivo Gen"]
+            campos_editables = ["Edad", "Material", "Segmentacion Proveedor", "Segmentacion Marathon", "Vidriera", "Año", "Objetivo Gen"]
             guardados = 0
             for comp_id, row in cambios.iterrows():
                 if comp_id not in originales.index:
@@ -1280,7 +1332,10 @@ def _render_abm_articulos() -> None:
         except Exception as e:
             st.error(f"No se pudieron guardar los cambios: {e}")
 
-    if cb3.button("Borrar seleccionados", disabled=not comp_ids_seleccionados, width="stretch", key="abm_complementarios_delete_selected_btn"):
+    if borrar_complementarios:
+        if not comp_ids_seleccionados:
+            st.warning("Selecciona al menos un complementario para borrar.")
+            return
         try:
             result = _api_delete_json("/api/abm-articulos/complementarios", {"ids": comp_ids_seleccionados})
             st.success(f"Complementarios eliminados: {result.get('deleted', 0)}.")
@@ -1290,17 +1345,10 @@ def _render_abm_articulos() -> None:
         except Exception as e:
             st.error(f"No se pudo borrar: {e}")
 
-    if cb4.button("Borrar todo", width="stretch", key="abm_complementarios_delete_all_btn"):
-        try:
-            result = _api_delete_json("/api/abm-articulos/complementarios", {"all": True})
-            st.success(f"Complementarios eliminados: {result.get('deleted', 0)}.")
-            st.session_state.pop("abm_complementarios_df", None)
-            _refresh_abm_listados()
-            st.rerun()
-        except Exception as e:
-            st.error(f"No se pudo borrar todo: {e}")
-
-    if cb5.button("Descargar complementario", type="primary", width="stretch", key="abm_complementarios_export_btn"):
+    if exportar_complementarios:
+        if not comp_ids_seleccionados:
+            st.warning("Selecciona al menos un complementario para descargar.")
+            return
         try:
             data = _api_post("/api/abm-articulos/complementarios/exportar", {"ids": comp_ids_seleccionados})
             download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
@@ -1310,6 +1358,7 @@ def _render_abm_articulos() -> None:
                     "filename": data["filename"],
                     "message": f"Complementarios exportados: {data.get('exported', 0)}. Fallback CEGID: {data.get('fallbacks', 0)}.",
                 }
+                _refresh_abm_listados()
                 st.rerun()
             else:
                 st.error("El complementario se genero, pero no se pudo descargar.")
