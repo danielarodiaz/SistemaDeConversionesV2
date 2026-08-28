@@ -23,7 +23,7 @@ ITEC_HEADER = (
 LCOC_HEADER = "CABECERA|PERIODO|tipo|Precio|Cod Articulo".split("|")
 LPMC_HEADER = "CABECERA|CODIGO_ARTICULO|PRECIO".split("|")
 ITCC_HEADER = (
-    "CABECERA|GA2_CODEARTICLE|GA2_ARTICLE|GA2_LIBREARTB|GA2_FAMILLENIV4|GA2_FAMILLENIV5| "
+    "CABECERA|GA2_CODEARTICLE|GA2_LIBREARTB|GA2_ARTICLE|GA2_FAMILLENIV4|GA2_FAMILLENIV5|"
     "GA2_FAMILLENIV6|GA2_LIBREARTC|GA2_LIBREARTD|GA2_FAMILLENIV7"
 ).split("|")
 
@@ -53,8 +53,8 @@ def fila_itec(articulo):
         _valor(articulo, "descripcion"),
         _valor(articulo, "tipoProducto"),
         _valor(articulo, "descripcionProducto"),
-        _valor(articulo, "grupo"),
-        _valor(articulo, "descripciongrupo"),
+        "",
+        "",
         _valor(articulo, "grupoSAP"),
         _valor(articulo, "descripcionGrupoSAP"),
     ]
@@ -94,13 +94,13 @@ def fila_itec(articulo):
         _valor(articulo, "medida"),
         _valor(articulo, "codigoGen"),
         _valor(articulo, "genero2"),
-        _valor(articulo, "canal"),
+        "",
         _valor(articulo, "codigoCapsula"),
-        _valor(articulo, "descripcionCapsula"),
+        "",
         _valor(articulo, "codigoDivision"),
-        _valor(articulo, "descripcionDivision"),
+        "",
         _valor(articulo, "codigoTemporada"),
-        _valor(articulo, "descripcionTemporada"),
+        "",
     ])
     return row
 
@@ -175,8 +175,26 @@ def generar_csv_complementario_abm(complementarios, codigos_cruzar, output_folde
     ts_nombre = datetime.now().strftime("%d%m%Y_%H%M")
     path = os.path.join(output_folder, f"ARTCOMP_{ts_nombre}.csv")
     rows = []
+    codigo_actual = None
+    representante_padre = None
+
+    def agregar_padre(comp):
+        if not comp:
+            return
+        codigo = _valor(comp, "codigo").strip()
+        if not codigo:
+            return
+        rows.append(fila_comp(comp, codigos_cruzar.get((codigo, "")) or codigo))
+
     for comp in complementarios:
+        codigo = _valor(comp, "codigo").strip()
+        if codigo_actual is not None and codigo != codigo_actual:
+            agregar_padre(representante_padre)
+            representante_padre = None
+        codigo_actual = codigo
+        representante_padre = representante_padre or comp
         clave = (_valor(comp, "codigo").strip(), _valor(comp, "codigoBarra").strip())
         rows.append(fila_comp(comp, codigos_cruzar.get(clave) or _valor(comp, "codigoBarra")))
+    agregar_padre(representante_padre)
     escribir_csv(path, ITCC_HEADER, rows)
     return path

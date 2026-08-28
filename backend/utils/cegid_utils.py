@@ -342,7 +342,8 @@ def obtener_promos_por_codigos_articulo(codigos_articulo: List[str]) -> Dict[str
 def obtener_codigos_cruzar_articulos(pares_codigo_barra: List[Tuple[str, str]]) -> Dict[Tuple[str, str], str]:
     """
     Cruza codigo de articulo + codigo de barra contra CEGID y devuelve GA_ARTICLE.
-    Si CEGID no esta disponible o no hay match, el caller debe usar codigoBarra como fallback.
+    Para codigo_barra vacio busca la fila padre del articulo.
+    Si CEGID no esta disponible o no hay match, el caller debe aplicar el fallback.
     """
     if not pares_codigo_barra:
         return {}
@@ -353,7 +354,7 @@ def obtener_codigos_cruzar_articulos(pares_codigo_barra: List[Tuple[str, str]]) 
         codigo_limpio = str(codigo or "").strip()
         barra_limpia = str(codigo_barra or "").strip()
         clave = (codigo_limpio, barra_limpia)
-        if codigo_limpio and barra_limpia and clave not in vistos:
+        if codigo_limpio and clave not in vistos:
             pares.append(clave)
             vistos.add(clave)
 
@@ -367,14 +368,29 @@ def obtener_codigos_cruzar_articulos(pares_codigo_barra: List[Tuple[str, str]]) 
 
         cursor = conexion.cursor()
         resultados: Dict[Tuple[str, str], str] = {}
-        query = """
+        query_hijo = """
             SELECT GA_ARTICLE
             FROM MARAPROD24.dbo.ARTICLE
             WHERE GA_CODEARTICLE = ?
               AND GA_CODEBARRE = ?
         """
+        query_padre = """
+            SELECT TOP 1 GA_ARTICLE
+            FROM MARAPROD24.dbo.ARTICLE
+            WHERE GA_CODEARTICLE = ?
+              AND (GA_CODEBARRE IS NULL OR LTRIM(RTRIM(GA_CODEBARRE)) = '')
+            ORDER BY
+              CASE
+                WHEN LTRIM(RTRIM(REPLACE(REPLACE(GA_ARTICLE, GA_CODEARTICLE, ''), 'X', ''))) = '' THEN 0
+                ELSE 1
+              END,
+              GA_ARTICLE
+        """
         for codigo, codigo_barra in pares:
-            cursor.execute(query, (codigo, codigo_barra))
+            if codigo_barra:
+                cursor.execute(query_hijo, (codigo, codigo_barra))
+            else:
+                cursor.execute(query_padre, (codigo,))
             row = cursor.fetchone()
             if row and row[0] is not None:
                 resultados[(codigo, codigo_barra)] = str(row[0]).strip()

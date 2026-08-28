@@ -355,24 +355,37 @@ def _precio_map(session, model, campo):
     return data
 
 
-def exportar_borradores():
+def exportar_borradores(articulo_ids=None):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     with UnitOfWork() as uow:
-        articulos = (
-            uow.session.query(Articulo)
-            .filter(Articulo.sector == "base", Articulo.estado == "borrador")
-            .order_by(Articulo.codigo, Articulo.id)
-            .all()
+        ids = [int(i) for i in (articulo_ids or []) if i is not None]
+        query = uow.session.query(Articulo).filter(
+            Articulo.sector == "base",
+            Articulo.estado == "borrador",
         )
+        if ids:
+            query = query.filter(Articulo.id.in_(ids))
+        articulos = query.order_by(Articulo.codigo, Articulo.id).all()
         if not articulos:
             raise ValueError("No hay borradores pendientes para exportar.")
 
-        complementarios = (
+        pares_articulo = {
+            (str(articulo.codigo or "").strip(), str(articulo.codigoBarra or "").strip())
+            for articulo in articulos
+        }
+        complementarios_candidatos = (
             uow.session.query(ArticuloComplementario)
-            .filter(ArticuloComplementario.sector == "base", ArticuloComplementario.estado == "borrador")
+            .filter(
+                ArticuloComplementario.sector == "base",
+                ArticuloComplementario.estado == "borrador",
+            )
             .order_by(ArticuloComplementario.codigo, ArticuloComplementario.id)
             .all()
         )
+        complementarios = [
+            comp for comp in complementarios_candidatos
+            if (str(comp.codigo or "").strip(), str(comp.codigoBarra or "").strip()) in pares_articulo
+        ]
         precios_compra = _precio_map(uow.session, precioCompra, "precioCompra")
         precios_venta = _precio_map(uow.session, precioVenta, "precioVenta")
         zip_path = generar_zip_abm_articulos(
@@ -432,7 +445,6 @@ def actualizar_complementario(comp_id, payload):
         "Vidriera": "codigoVidriera",
         "Año": "codigoAnio",
         "Objetivo Gen": "objetivoGeneral",
-        "ID Articulo": "codigoCruzar",
     }
     with UnitOfWork() as uow:
         comp = uow.session.get(ArticuloComplementario, int(comp_id))
@@ -475,6 +487,7 @@ def exportar_complementarios(comp_ids=None):
             raise ValueError("No hay complementarios para exportar.")
 
         pares = [(c.codigo, c.codigoBarra) for c in complementarios]
+        pares.extend((codigo, "") for codigo in {str(c.codigo or "").strip() for c in complementarios if c.codigo})
         codigos_cruzar = obtener_codigos_cruzar_articulos(pares)
         fallbacks = len(pares) - len(codigos_cruzar)
         if fallbacks:
