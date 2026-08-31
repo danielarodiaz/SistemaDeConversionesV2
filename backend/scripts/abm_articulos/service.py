@@ -8,6 +8,7 @@ from backend.models import (
     Articulo,
     ArticuloComplementario,
     Proveedor,
+    ProveedorMarca,
     TalleMaestro,
     año,
     canal,
@@ -101,7 +102,12 @@ def obtener_catalogos():
             rows = uow.session.query(model).order_by(getattr(model, codigo_attr)).all()
             data[nombre] = [_catalog_item(row, codigo_attr, descripcion_attr) for row in rows]
 
-        proveedores = uow.session.query(Proveedor).order_by(Proveedor.razon_social).all()
+        proveedores = (
+            uow.session.query(Proveedor)
+            .filter(func.upper(func.ltrim(func.rtrim(func.coalesce(Proveedor.tipo, "")))) == "MERCADERIA")
+            .order_by(Proveedor.razon_social)
+            .all()
+        )
         data["proveedores"] = [
             {
                 "id": p.id,
@@ -111,6 +117,19 @@ def obtener_catalogos():
             }
             for p in proveedores
         ]
+        relaciones = (
+            uow.session.query(ProveedorMarca, marca)
+            .join(marca, marca.id == ProveedorMarca.marca_id)
+            .filter(ProveedorMarca.activo == 1)
+            .order_by(marca.descripcionMarca)
+            .all()
+        )
+        marcas_por_proveedor = {}
+        for relacion, marca_row in relaciones:
+            marcas_por_proveedor.setdefault(str(relacion.proveedor_id), []).append(
+                _catalog_item(marca_row, "codigoMarca", "descripcionMarca")
+            )
+        data["marcas_por_proveedor"] = marcas_por_proveedor
 
         talles = uow.session.query(TalleMaestro).order_by(TalleMaestro.codigoTalle, TalleMaestro.valorTalle).all()
         data["talles"] = [

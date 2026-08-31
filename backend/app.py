@@ -33,6 +33,12 @@ from backend.scripts.abm_articulos.service import (
     listar_borradores as abm_listar_borradores,
     obtener_catalogos as abm_obtener_catalogos,
 )
+from backend.scripts.abm_articulos.config_service import (
+    actualizar_config as abm_actualizar_config,
+    crear_config as abm_crear_config,
+    eliminar_config as abm_eliminar_config,
+    listar_config as abm_listar_config,
+)
 
 # Fuerza UTF-8 en la consola para evitar UnicodeEncodeError con emojis en Windows
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
@@ -391,6 +397,63 @@ def abm_articulos_exportar_complementarios():
             **result,
             "download_url": f"{backend_url}/api/download/{result['filename']}",
         }), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/config/<modulo>', methods=['GET'])
+def abm_articulos_config_listar(modulo):
+    try:
+        return jsonify({"items": abm_listar_config(modulo)}), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/config/<modulo>', methods=['POST'])
+def abm_articulos_config_crear(modulo):
+    try:
+        payload = request.get_json(force=True) or {}
+        item = abm_crear_config(modulo, payload)
+        return jsonify({"status": "success", "item": item}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/config/<modulo>/<int:item_id>', methods=['PUT'])
+def abm_articulos_config_actualizar(modulo, item_id):
+    try:
+        payload = request.get_json(force=True) or {}
+        item = abm_actualizar_config(modulo, item_id, payload)
+        if item is None:
+            return jsonify({"error": "Registro no encontrado"}), 404
+        return jsonify({"status": "success", "item": item}), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/abm-articulos/config/<modulo>/<int:item_id>', methods=['DELETE'])
+def abm_articulos_config_eliminar(modulo, item_id):
+    try:
+        result = abm_eliminar_config(modulo, item_id)
+        if not result:
+            return jsonify({"error": "Registro no encontrado"}), 404
+        return jsonify({"status": "success", **result}), 200
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
