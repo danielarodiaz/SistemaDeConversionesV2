@@ -180,6 +180,20 @@ def _load_abm_complementarios() -> list:
     return _api_get("/api/abm-articulos/complementarios").get("items", [])
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_abm_config(modulo: str) -> list:
+    return _api_get(f"/api/abm-articulos/config/{modulo}").get("items", [])
+
+
+def _refresh_abm_config(modulo: str):
+    _load_abm_config.clear()
+    _load_abm_catalogos.clear()
+    st.session_state.pop(f"abm_config_{modulo}_edit", None)
+    st.session_state.pop(f"abm_config_{modulo}_confirm", None)
+    st.session_state.pop(f"abm_config_{modulo}_dialog", None)
+    st.session_state.pop(f"abm_config_{modulo}_modal_payload", None)
+
+
 def _reload_abm_listados():
     _load_abm_borradores.clear()
     _load_abm_complementarios.clear()
@@ -194,6 +208,15 @@ def _ensure_abm_listados_loaded():
 
 def _refresh_abm_listados():
     _reload_abm_listados()
+
+
+def _abm_selected_id(item):
+    return (item or {}).get("id") if isinstance(item, dict) else item
+
+
+def _clear_session_keys(*keys):
+    for key in keys:
+        st.session_state.pop(key, None)
 
 
 def _api_post_file(path: str, file, data=None) -> dict:
@@ -863,7 +886,6 @@ def _render_abm_articulos() -> None:
         return
 
     tipos = catalogos.get("tipos_producto", [])
-    marcas = catalogos.get("marcas", [])
     talles = catalogos.get("talles", [])
     colores = catalogos.get("colores", [])
     valores_genero = [
@@ -875,27 +897,42 @@ def _render_abm_articulos() -> None:
     ]
 
     st.markdown("### Datos base")
-    c1, c2 = st.columns([1, 2])
+    c1, c2 = st.columns(2)
     codigo = c1.text_input("Codigo", key="abm_codigo")
     descripcion = c2.text_input("Descripcion", key="abm_descripcion")
 
     c3, c4, c5 = st.columns(3)
     tipo_sel = c3.selectbox("Desc. Tipo de Producto", [None] + tipos, format_func=_label, key="abm_tipo")
-    marca_sel = c4.selectbox("Desc. Marca", [None] + marcas, format_func=_label, key="abm_marca")
-    genero_sel = c5.selectbox("Desc. Genero", [None] + catalogos.get("generos", []), format_func=_label, key="abm_genero")
-
-    c6, c7, c8, c8b = st.columns(4)
-    edades_filtradas = _edades_para_tipo_genero(tipo_sel, genero_sel, catalogos.get("edades", []))
-    if st.session_state.get("abm_edad") not in ([None] + edades_filtradas):
-        st.session_state.pop("abm_edad", None)
-    edad_sel = c6.selectbox("Desc. Edad", [None] + edades_filtradas, format_func=_label, key="abm_edad")
-    valor_sugerido_sel = valor_sugerido(genero_sel, edad_sel, valores_genero)
-    if valor_sugerido_sel and st.session_state.get("abm_valor_genero") != valor_sugerido_sel:
-        st.session_state["abm_valor_genero"] = valor_sugerido_sel
-    valor_genero_sel = c7.selectbox("VALOR", [None] + valores_genero, format_func=_label, key="abm_valor_genero")
-    siluetas_filtradas = _siluetas_para_tipo(tipo_sel, catalogos.get("siluetas", []))
-    silueta_sel = c8.selectbox("Desc. Silueta", [None] + siluetas_filtradas, format_func=_label, key="abm_silueta")
-    uso_sel = c8b.selectbox("Desc. Uso", [None] + catalogos.get("usos", []), format_func=_label, key="abm_uso")
+    tipo_actual = _abm_selected_id(tipo_sel)
+    if st.session_state.get("abm_tipo_actual") != tipo_actual:
+        st.session_state["abm_tipo_actual"] = tipo_actual
+        _clear_session_keys(
+            "abm_edad",
+            "abm_valor_genero",
+            "abm_silueta",
+            "abm_objetivo",
+            "abm_valor_color",
+            "abm_desc_talle",
+            "abm_desc_talle_actual",
+            "abm_talles_df",
+        )
+    proveedor_sel = c4.selectbox("Proveedor Habitual", [None] + catalogos.get("proveedores", []), format_func=_label_codigo, key="abm_proveedor")
+    proveedor_actual = _abm_selected_id(proveedor_sel)
+    if st.session_state.get("abm_proveedor_actual") != proveedor_actual:
+        st.session_state["abm_proveedor_actual"] = proveedor_actual
+        _clear_session_keys("abm_marca", "abm_desc_talle", "abm_desc_talle_actual", "abm_talles_df")
+    marcas_por_proveedor = catalogos.get("marcas_por_proveedor", {})
+    proveedor_id = str((proveedor_sel or {}).get("id") or "")
+    marcas_filtradas = marcas_por_proveedor.get(proveedor_id, []) if proveedor_id else []
+    if st.session_state.get("abm_marca") not in ([None] + marcas_filtradas):
+        st.session_state.pop("abm_marca", None)
+    marca_sel = c5.selectbox("Desc. Marca", [None] + marcas_filtradas, format_func=_label, key="abm_marca")
+    marca_actual = _abm_selected_id(marca_sel)
+    if st.session_state.get("abm_marca_actual") != marca_actual:
+        st.session_state["abm_marca_actual"] = marca_actual
+        _clear_session_keys("abm_desc_talle", "abm_desc_talle_actual", "abm_talles_df")
+    if proveedor_sel and not marcas_filtradas:
+        st.caption("Este proveedor no tiene marcas relacionadas cargadas.")
 
     capsulas = catalogos.get("capsulas", [])
     temporadas = catalogos.get("temporadas", [])
@@ -905,29 +942,50 @@ def _render_abm_articulos() -> None:
     vidrieras = catalogos.get("vidrieras", [])
     objetivos_filtrados = _objetivos_para_tipo(tipo_sel, catalogos.get("objetivos", []))
 
+    c6, c7, c8 = st.columns(3)
+    genero_sel = c6.selectbox("Desc. Genero", [None] + catalogos.get("generos", []), format_func=_label, key="abm_genero")
+    genero_actual = _abm_selected_id(genero_sel)
+    if st.session_state.get("abm_genero_actual") != genero_actual:
+        st.session_state["abm_genero_actual"] = genero_actual
+        _clear_session_keys("abm_edad", "abm_valor_genero", "abm_desc_talle", "abm_desc_talle_actual", "abm_talles_df")
+    edades_filtradas = _edades_para_tipo_genero(tipo_sel, genero_sel, catalogos.get("edades", []))
+    if st.session_state.get("abm_edad") not in ([None] + edades_filtradas):
+        st.session_state.pop("abm_edad", None)
+    edad_sel = c7.selectbox("Desc. Edad", [None] + edades_filtradas, format_func=_label, key="abm_edad")
+    edad_actual = _abm_selected_id(edad_sel)
+    if st.session_state.get("abm_edad_actual") != edad_actual:
+        st.session_state["abm_edad_actual"] = edad_actual
+        _clear_session_keys("abm_valor_genero", "abm_desc_talle", "abm_desc_talle_actual", "abm_talles_df")
+    valor_sugerido_sel = valor_sugerido(genero_sel, edad_sel, valores_genero)
+    if valor_sugerido_sel and st.session_state.get("abm_valor_genero") != valor_sugerido_sel:
+        st.session_state["abm_valor_genero"] = valor_sugerido_sel
+    valor_genero_sel = c8.selectbox("VALOR", [None] + valores_genero, format_func=_label, key="abm_valor_genero")
+
+    c8a, c8b, c8c = st.columns(3)
+    siluetas_filtradas = _siluetas_para_tipo(tipo_sel, catalogos.get("siluetas", []))
+    silueta_sel = c8a.selectbox("Desc. Silueta", [None] + siluetas_filtradas, format_func=_label, key="abm_silueta")
+    uso_sel = c8b.selectbox("Desc. Uso", [None] + catalogos.get("usos", []), format_func=_label, key="abm_uso")
+    capsula_sel = c8c.selectbox("Desc. Capsula", [None] + capsulas, index=_default_index(capsulas, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_capsula")
+
     c9, c10, c11 = st.columns(3)
-    capsula_sel = c9.selectbox("Desc. Capsula", [None] + capsulas, index=_default_index(capsulas, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_capsula")
-    division_sel = c10.selectbox("Desc. Division", [None] + catalogos.get("divisiones", []), format_func=_label, key="abm_division")
-    temporada_sel = c11.selectbox("Desc. Temporada", [None] + temporadas, index=_default_index(temporadas, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_temporada")
+    division_sel = c9.selectbox("Desc. Division", [None] + catalogos.get("divisiones", []), format_func=_label, key="abm_division")
+    temporada_sel = c10.selectbox("Desc. Temporada", [None] + temporadas, index=_default_index(temporadas, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_temporada")
+    material_sel = c11.selectbox("Desc. Material", [None] + materiales, index=_default_index(materiales, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_material")
 
     c12, c13, c14 = st.columns(3)
-    material_sel = c12.selectbox("Desc. Material", [None] + materiales, index=_default_index(materiales, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_material")
-    seg_prov_sel = c13.selectbox("Desc. Segmentacion Proveedor", [None] + seg_proveedores, index=_default_index(seg_proveedores, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_seg_prov")
-    seg_marathon_sel = c14.selectbox("Desc. Segmentacion Marathon", [None] + seg_marathon, index=_default_index(seg_marathon, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_seg_marathon")
+    seg_prov_sel = c12.selectbox("Desc. Segmentacion Proveedor", [None] + seg_proveedores, index=_default_index(seg_proveedores, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_seg_prov")
+    seg_marathon_sel = c13.selectbox("Desc. Segmentacion", [None] + seg_marathon, index=_default_index(seg_marathon, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_seg_marathon")
+    vidriera_sel = c14.selectbox("Desc. Exhibicion", [None] + vidrieras, index=_default_index(vidrieras, ["N/A"]), format_func=_label, key="abm_vidriera")
 
-    c15, c16, c17 = st.columns(3)
-    vidriera_sel = c15.selectbox("Desc. Exhibicion", [None] + vidrieras, index=_default_index(vidrieras, ["N/A"]), format_func=_label, key="abm_vidriera")
-    anio_sel = c16.selectbox("Desc. Anio", [None] + catalogos.get("anios", []), format_func=_label, key="abm_anio")
+    c15, c16, c17, c18 = st.columns(4)
+    anio_sel = c15.selectbox("Desc. Anio", [None] + catalogos.get("anios", []), format_func=_label, key="abm_anio")
     if st.session_state.get("abm_objetivo") not in ([None] + objetivos_filtrados):
         st.session_state.pop("abm_objetivo", None)
-    objetivo_sel = c17.selectbox("Desc. Objetivo General", [None] + objetivos_filtrados, format_func=_label, key="abm_objetivo")
-
-    c18, c19, c20 = st.columns(3)
+    objetivo_sel = c16.selectbox("Desc. Objetivo General", [None] + objetivos_filtrados, format_func=_label, key="abm_objetivo")
     color_talle = _color_talle_para_tipo((tipo_sel or {}).get("codigo"), colores)
     valores_color = [c for c in colores if not color_talle or c.get("codigo") == color_talle.get("codigo")]
-    valor_color_sel = c18.selectbox("Desc. Valor Color", [None] + valores_color, format_func=lambda item: "" if not item else item.get("descripcionValor", ""), key="abm_valor_color")
-    proveedor_sel = c19.selectbox("Proveedor Habitual", [None] + catalogos.get("proveedores", []), format_func=_label_codigo, key="abm_proveedor")
-    c20.text_input("Desc. Color Talle", value=(color_talle or {}).get("descripcion", ""), disabled=True)
+    valor_color_sel = c17.selectbox("Desc. Color", [None] + valores_color, format_func=lambda item: "" if not item else item.get("descripcionValor", ""), key="abm_valor_color")
+    c18.text_input("Desc. Color Talle", value=(color_talle or {}).get("descripcion", ""), disabled=True)
 
     precio_compra = st.number_input("Precio compra", min_value=0.0, step=0.01, format="%.2f", key="abm_precio_compra")
     markup_valor = _markup_para(marca_sel, tipo_sel, catalogos.get("markups", []))
@@ -1418,6 +1476,300 @@ def _render_abm_articulos() -> None:
                     st.error(f"No se pudo modificar: {e}")
 
 
+CONFIG_ABM_MODULOS = {
+    "proveedores": {
+        "titulo": "Alta de Proveedores",
+        "codigo_label": "Cod. Proveedor",
+        "descripcion_label": "Razon Social",
+    },
+    "marcas": {
+        "titulo": "Alta de Marcas",
+        "codigo_label": "Cod. Marca",
+        "descripcion_label": "Desc. Marca",
+    },
+    "proveedor-marca": {
+        "titulo": "Relacion Proveedor-Marca",
+        "codigo_label": "Cod. Prov",
+        "descripcion_label": "Cod. Marca",
+    },
+    "objetivos": {
+        "titulo": "Alta de Objetivo General",
+        "codigo_label": "Cod. Objetivo Grupo",
+        "descripcion_label": "Desc. Objetivo Grupo",
+    },
+}
+
+
+def _render_config_listado(modulo, items):
+    meta = CONFIG_ABM_MODULOS[modulo]
+    st.markdown("#### Listado")
+    if modulo == "proveedores":
+        widths = [1.2, 1.1, 2, 1.3, 1, 1.5]
+        headers = ["CUIT", "Cod. Proveedor", "Razon Social", "Marca", "Pivot", "Acciones"]
+    else:
+        widths = [1.2, 2, 1.4]
+        headers = [meta["codigo_label"], meta["descripcion_label"], "Acciones"]
+
+    for col, header in zip(st.columns(widths), headers):
+        col.markdown(f"**{header}**")
+
+    for item in items:
+        cols = st.columns(widths)
+        if modulo == "proveedores":
+            cols[0].write(item.get("cuit", ""))
+            cols[1].write(item.get("codigo", ""))
+            cols[2].write(item.get("descripcion", ""))
+            cols[3].write(item.get("marca", ""))
+            cols[4].write(item.get("pivot", ""))
+            acciones_col = cols[5]
+        else:
+            cols[0].write(item.get("codigo", ""))
+            cols[1].write(item.get("descripcion", ""))
+            acciones_col = cols[2]
+
+        b1, b2 = acciones_col.columns(2)
+        if b1.button("Modificar", key=f"abm_config_{modulo}_edit_{item['id']}", type="secondary"):
+            _render_config_dialog(modulo, {"accion": "modificar", "item": item})
+        if b2.button("Eliminar", key=f"abm_config_{modulo}_delete_{item['id']}", type="primary"):
+            _render_config_dialog(modulo, {"accion": "eliminar", "item": item})
+
+
+def _mensaje_config(modulo, accion):
+    nombres = {
+        "proveedores": "proveedor",
+        "marcas": "marca",
+        "proveedor-marca": "relacion proveedor-marca",
+        "objetivos": "objetivo general",
+    }
+    nombre = nombres.get(modulo, "registro")
+    if accion == "crear":
+        return f"La {nombre} se creo correctamente." if modulo in {"marcas", "proveedor-marca"} else f"El {nombre} se creo correctamente."
+    if accion == "modificar":
+        return f"La {nombre} se modifico correctamente." if modulo in {"marcas", "proveedor-marca"} else f"El {nombre} se modifico correctamente."
+    return f"La {nombre} se elimino correctamente." if modulo in {"marcas", "proveedor-marca"} else f"El {nombre} se elimino correctamente."
+
+
+def _set_config_flash(modulo, message):
+    st.session_state[f"abm_config_{modulo}_flash"] = message
+
+
+def _reset_config_create_form(modulo):
+    key = f"abm_config_{modulo}_create_version"
+    st.session_state[key] = st.session_state.get(key, 0) + 1
+
+
+def _render_config_flash(modulo):
+    message = st.session_state.pop(f"abm_config_{modulo}_flash", None)
+    if message:
+        if hasattr(st, "toast"):
+            st.toast(message)
+        else:
+            st.success(message)
+
+
+def _config_dialog_decorator(title):
+    dialog = getattr(st, "dialog", None) or getattr(st, "experimental_dialog", None)
+    if not dialog:
+        return None
+    return dialog(title)
+
+
+def _payload_config_proveedor(cuit, cod_prov, razon_social, marca_txt, pivot):
+    return {
+        "cuit": cuit,
+        "cod_prov": cod_prov,
+        "razon_social": razon_social,
+        "marca": marca_txt,
+        "pivot": pivot,
+    }
+
+
+def _payload_config_simple(modulo, codigo, descripcion):
+    if modulo == "proveedor-marca":
+        return {"cod_prov": codigo, "codigoMarca": descripcion}
+    return {"codigo": codigo, "descripcion": descripcion}
+
+
+def _render_config_delete_body(modulo, item):
+    st.warning("Estas seguro que queres eliminar este registro?")
+    relaciones = item.get("relaciones") or []
+    if relaciones:
+        detalle = ", ".join(
+            f"{rel.get('cod_prov', '')} - {rel.get('codigoMarca', '')}".strip(" -")
+            for rel in relaciones[:8]
+        )
+        extra = "" if len(relaciones) <= 8 else f" y {len(relaciones) - 8} mas"
+        sujeto = "proveedor" if modulo == "proveedores" else "marca"
+        st.info(f"Este {sujeto} tiene relaciones cargadas: {detalle}{extra}. Si lo eliminas, tambien se eliminaran esas relaciones.")
+
+    c1, c2 = st.columns(2)
+    if c1.button("Si, eliminar", key=f"abm_config_{modulo}_modal_delete_yes", type="primary", width="stretch"):
+        try:
+            _api_delete(f"/api/abm-articulos/config/{modulo}/{item['id']}")
+            _set_config_flash(modulo, _mensaje_config(modulo, "eliminar"))
+            _refresh_abm_config(modulo)
+            st.session_state.pop(f"abm_config_{modulo}_dialog", None)
+            st.rerun()
+        except Exception as exc:
+            st.error(f"No se pudo eliminar: {exc}")
+    if c2.button("Cancelar", key=f"abm_config_{modulo}_modal_delete_no", type="secondary", width="stretch"):
+        st.session_state.pop(f"abm_config_{modulo}_dialog", None)
+        st.rerun()
+
+
+def _render_config_confirm_update_body(modulo, item, payload):
+    st.warning("Estas seguro que queres modificar este registro?")
+    c1, c2 = st.columns(2)
+    if c1.button("Si, guardar", key=f"abm_config_{modulo}_modal_update_yes", type="primary", width="stretch"):
+        try:
+            _api_put(f"/api/abm-articulos/config/{modulo}/{item['id']}", payload)
+            _set_config_flash(modulo, _mensaje_config(modulo, "modificar"))
+            _refresh_abm_config(modulo)
+            st.session_state.pop(f"abm_config_{modulo}_dialog", None)
+            st.session_state.pop(f"abm_config_{modulo}_modal_payload", None)
+            st.rerun()
+        except Exception as exc:
+            st.error(f"No se pudo modificar: {exc}")
+    if c2.button("No, volver", key=f"abm_config_{modulo}_modal_update_no", type="secondary", width="stretch"):
+        st.session_state.pop(f"abm_config_{modulo}_modal_payload", None)
+        st.rerun()
+
+
+def _render_config_update_body(modulo, item):
+    pending_payload = st.session_state.get(f"abm_config_{modulo}_modal_payload")
+    if pending_payload:
+        _render_config_confirm_update_body(modulo, item, pending_payload)
+        return
+
+    if modulo == "proveedores":
+        with st.form(f"abm_config_{modulo}_modal_form_{item['id']}"):
+            c1, c2 = st.columns(2)
+            cuit = c1.text_input("CUIT", value=item.get("cuit", ""), max_chars=11, key=f"abm_config_{modulo}_modal_cuit_{item['id']}")
+            cod_prov = c2.text_input("Cod. Proveedor", value=item.get("codigo", ""), key=f"abm_config_{modulo}_modal_codigo_{item['id']}")
+            razon_social = st.text_input("Razon Social", value=item.get("descripcion", ""), key=f"abm_config_{modulo}_modal_razon_{item['id']}")
+            c3, c4 = st.columns(2)
+            marca_txt = c3.text_input("Marca", value=item.get("marca", ""), key=f"abm_config_{modulo}_modal_marca_{item['id']}")
+            pivot = c4.text_input("Pivot", value=item.get("pivot", ""), key=f"abm_config_{modulo}_modal_pivot_{item['id']}")
+            guardar = st.form_submit_button("Guardar cambios", type="primary", width="stretch")
+        if guardar:
+            st.session_state[f"abm_config_{modulo}_dialog"] = {"accion": "modificar", "item": item}
+            st.session_state[f"abm_config_{modulo}_modal_payload"] = _payload_config_proveedor(
+                cuit,
+                cod_prov,
+                razon_social,
+                marca_txt,
+                pivot,
+            )
+            st.rerun()
+
+    else:
+        meta = CONFIG_ABM_MODULOS[modulo]
+        descripcion_default = item.get("codigoMarca", "") if modulo == "proveedor-marca" else item.get("descripcion", "")
+        with st.form(f"abm_config_{modulo}_modal_form_{item['id']}"):
+            codigo = st.text_input(meta["codigo_label"], value=item.get("codigo", ""), key=f"abm_config_{modulo}_modal_codigo_{item['id']}")
+            descripcion = st.text_input(meta["descripcion_label"], value=descripcion_default, key=f"abm_config_{modulo}_modal_descripcion_{item['id']}")
+            guardar = st.form_submit_button("Guardar cambios", type="primary", width="stretch")
+        if guardar:
+            st.session_state[f"abm_config_{modulo}_dialog"] = {"accion": "modificar", "item": item}
+            st.session_state[f"abm_config_{modulo}_modal_payload"] = _payload_config_simple(modulo, codigo, descripcion)
+            st.rerun()
+
+    if st.button("Cancelar", key=f"abm_config_{modulo}_modal_cancel_{item['id']}", type="secondary", width="stretch"):
+        st.session_state.pop(f"abm_config_{modulo}_dialog", None)
+        st.session_state.pop(f"abm_config_{modulo}_modal_payload", None)
+        st.rerun()
+
+
+def _render_config_dialog(modulo, dialog_state=None):
+    dialog_state = dialog_state or st.session_state.get(f"abm_config_{modulo}_dialog")
+    if not dialog_state:
+        return
+
+    item = dialog_state.get("item") or {}
+    accion = dialog_state.get("accion")
+    title = "Modificar registro" if accion == "modificar" else "Eliminar registro"
+    dialog = _config_dialog_decorator(title)
+    if not dialog:
+        if accion == "modificar":
+            _render_config_update_body(modulo, item)
+        else:
+            _render_config_delete_body(modulo, item)
+        return
+
+    @dialog
+    def _dialog_content():
+        if accion == "modificar":
+            _render_config_update_body(modulo, item)
+        else:
+            _render_config_delete_body(modulo, item)
+
+    _dialog_content()
+
+
+def _render_config_proveedores():
+    modulo = "proveedores"
+    version = st.session_state.get(f"abm_config_{modulo}_create_version", 0)
+    with st.form(f"abm_config_proveedores_form_{version}"):
+        c1, c2, c3 = st.columns(3)
+        cuit = c1.text_input("CUIT", max_chars=11, key=f"abm_config_prov_cuit_{version}")
+        cod_prov = c2.text_input("Cod. Proveedor", key=f"abm_config_prov_codigo_{version}")
+        razon_social = c3.text_input("Razon Social", key=f"abm_config_prov_razon_{version}")
+        c4, c5 = st.columns(2)
+        marca_txt = c4.text_input("Marca", key=f"abm_config_prov_marca_{version}")
+        pivot = c5.text_input("Pivot", key=f"abm_config_prov_pivot_{version}")
+        guardar = st.form_submit_button("Crear proveedor", type="primary")
+    if guardar:
+        try:
+            payload = _payload_config_proveedor(cuit, cod_prov, razon_social, marca_txt, pivot)
+            _api_post(f"/api/abm-articulos/config/{modulo}", payload)
+            _set_config_flash(modulo, _mensaje_config(modulo, "crear"))
+            _reset_config_create_form(modulo)
+            _refresh_abm_config(modulo)
+            st.rerun()
+        except Exception as exc:
+            st.error(f"No se pudo guardar: {exc}")
+
+
+def _render_config_simple(modulo):
+    meta = CONFIG_ABM_MODULOS[modulo]
+    version = st.session_state.get(f"abm_config_{modulo}_create_version", 0)
+    with st.form(f"abm_config_{modulo}_form_{version}"):
+        c1, c2 = st.columns(2)
+        codigo = c1.text_input(meta["codigo_label"], key=f"abm_config_{modulo}_codigo_{version}")
+        descripcion = c2.text_input(meta["descripcion_label"], key=f"abm_config_{modulo}_descripcion_{version}")
+        guardar = st.form_submit_button("Crear registro", type="primary")
+    if guardar:
+        try:
+            payload = _payload_config_simple(modulo, codigo, descripcion)
+            _api_post(f"/api/abm-articulos/config/{modulo}", payload)
+            _set_config_flash(modulo, _mensaje_config(modulo, "crear"))
+            _reset_config_create_form(modulo)
+            _refresh_abm_config(modulo)
+            st.rerun()
+        except Exception as exc:
+            st.error(f"No se pudo guardar: {exc}")
+
+
+def _render_config_abm_articulos():
+    st.subheader("Configuracion ABM Articulos")
+    tabs = st.tabs([meta["titulo"] for meta in CONFIG_ABM_MODULOS.values()])
+    for tab, modulo in zip(tabs, CONFIG_ABM_MODULOS):
+        with tab:
+            _render_config_flash(modulo)
+            if modulo == "proveedores":
+                _render_config_proveedores()
+            else:
+                _render_config_simple(modulo)
+            _render_config_dialog(modulo)
+            if st.button("Listado", key=f"abm_config_{modulo}_listado_btn"):
+                st.session_state[f"abm_config_{modulo}_show_list"] = not st.session_state.get(f"abm_config_{modulo}_show_list", False)
+            if st.session_state.get(f"abm_config_{modulo}_show_list", False):
+                try:
+                    _render_config_listado(modulo, _load_abm_config(modulo))
+                except Exception as exc:
+                    st.error(f"No se pudo cargar el listado: {exc}")
+
+
 def _render_app() -> None:
     with st.sidebar:
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -1427,7 +1779,7 @@ def _render_app() -> None:
         st.divider()
         menu = st.radio(
             "Secciones",
-            ["Pedido Proveedor", "Propuesta de Compra", "Procesos Especiales", "ABM Articulos", "Auditoria Logistica"],
+            ["Pedido Proveedor", "Propuesta de Compra", "Procesos Especiales", "ABM Articulos", "Config. ABM Articulos", "Auditoria Logistica"],
         )
 
     st.title(f"📂 {menu}")
@@ -1436,6 +1788,8 @@ def _render_app() -> None:
         _render_auditoria_logistica()
     elif menu == "ABM Articulos":
         _render_abm_articulos()
+    elif menu == "Config. ABM Articulos":
+        _render_config_abm_articulos()
     else:
         if menu == "Procesos Especiales":
             _render_sync_novedades_panel()

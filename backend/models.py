@@ -259,7 +259,22 @@ class marca(Base):
     codigoMarca = Column(String(50), index=True)
     descripcionMarca = Column(String(30), index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
-    
+
+class ProveedorMarca(Base):
+    __tablename__ = 'proveedor_marca'
+    __table_args__ = (
+        UniqueConstraint('proveedor_id', 'marca_id', name='uq_proveedor_marca'),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    proveedor_id = Column(Integer, ForeignKey('proveedores.id'), nullable=False, index=True)
+    marca_id = Column(Integer, ForeignKey('marcas.id'), nullable=False, index=True)
+    activo = Column(Integer, default=1, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    proveedor = relationship("Proveedor")
+    marca = relationship("marca")
+
 class markup(Base):
     __tablename__ = 'markups'
     id = Column(Integer, primary_key=True, autoincrement=True)
