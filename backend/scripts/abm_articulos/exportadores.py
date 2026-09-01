@@ -13,10 +13,10 @@ except ModuleNotFoundError:
 
 ITEC_HEADER = (
     "CABECERA|Codigo_Articulo|Descripcion_para_la_Compra|Tipo_de_Producto|Desc_Tipo_de_Producto|"
-    "Grupo|Desc_Grupo|Grupo_SAP_B1|Desc_Grupo_SAP_B1||||||||||Departamento|Desc_Departamento|"
-    "Marca|Desc_Marca|GENERO|Desc_Genero|Silueta|Desc_Silueta|Uso|Desc_Uso|Promo|Desc_Promo|||||||||||||||"
-    "Codigo_de_Barra|Talle|Desc_Talle|Valor_Talle|Des._Valor Talle|Color|Des._Color|Valor_Color|"
-    "Desc._Valor_Color||||||||Proveedor_Habitual|||||||||||||||||||||CODIGO|NOMBRE|VALOR|CODIGO|VALOR|"
+    "Grupo|Desc_Grupo|Grupo_SAP_B1|Desc_Grupo_SAP_B1|||||||||||Departamento|Desc_Departamento|"
+    "Marca|Desc_Marca|GENERO|Desc_Genero|Silueta|Desc_Silueta|Uso|Desc_Uso|Promo|Desc_Promo|||||||||||||||||||"
+    "Codigo_de_Barra|Talle|Desc_Talle|Valor_Talle|Des._Valor   Talle|Color|Des._Color|Valor_Color|"
+    "Desc._Valor_Color|||||||||Proveedor_Habitual||||||||||||||||||||||CODIGO|NOMBRE|VALOR|CODIGO|VALOR|"
     "CANAL|codigoCapsula|descripcionCapsula|codigoDivision|descripcionDivision|codigoTemporada|descripcionTemporada"
 ).split("|")
 
@@ -58,7 +58,7 @@ def fila_itec(articulo):
         _valor(articulo, "grupoSAP"),
         _valor(articulo, "descripcionGrupoSAP"),
     ]
-    row.extend([""] * 9)
+    row.extend([""] * 10)
     row.extend([
         "",
         "",
@@ -73,7 +73,7 @@ def fila_itec(articulo):
         _valor(articulo, "promo"),
         _valor(articulo, "descripcionPromo"),
     ])
-    row.extend([""] * 14)
+    row.extend([""] * 18)
     row.extend([
         _valor(articulo, "codigoBarra"),
         _valor(articulo, "talle"),
@@ -85,9 +85,9 @@ def fila_itec(articulo):
         _valor(articulo, "valor"),
         _valor(articulo, "descripcionValor"),
     ])
-    row.extend([""] * 7)
+    row.extend([""] * 8)
     row.append(_valor(articulo, "nombreProveedor"))
-    row.extend([""] * 20)
+    row.extend([""] * 21)
     row.extend([
         _valor(articulo, "codigoMedida"),
         _valor(articulo, "tipoMedida"),
