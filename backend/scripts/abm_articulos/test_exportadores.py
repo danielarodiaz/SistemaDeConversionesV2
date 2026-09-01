@@ -67,6 +67,14 @@ def test_columnas_exportadores_abm():
 
     assert len(fila_itec(articulo)) == len(ITEC_HEADER)
     art_row = fila_itec(articulo)
+    assert len(ITEC_HEADER) == 100
+    assert ITEC_HEADER.index("Departamento") == 19
+    assert ITEC_HEADER.index("Codigo_de_Barra") == 49
+    assert ITEC_HEADER.index("Proveedor_Habitual") == 66
+    assert ITEC_HEADER.index("CODIGO") == 88
+    assert art_row[49] == "7790001"
+    assert art_row[66] == "Proveedor"
+    assert art_row[88] == "CM"
     assert art_row[ITEC_HEADER.index("Grupo")] == ""
     assert art_row[ITEC_HEADER.index("Desc_Grupo")] == ""
     assert art_row[ITEC_HEADER.index("CANAL")] == ""
