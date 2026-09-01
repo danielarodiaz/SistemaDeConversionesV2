@@ -63,6 +63,7 @@ from backend.scripts.pedido_proveedor.proyec_processor    import process_proyec_
 from backend.scripts.pedido_proveedor.puma_processor      import process_puma_pedido_proveedor
 from backend.scripts.pedido_proveedor.saucony_processor   import process_saucony_pedido_proveedor
 from backend.scripts.pedido_proveedor.topper_processor    import process_topper_pedido_proveedor
+from backend.scripts.pedido_proveedor.winar_processor     import process_winar_pedido_proveedor
 # distrinando: comentado por dependencia de data_service (verificar disponibilidad)
 # from backend.scripts.pedido_proveedor.distrinando_processor import process_distrinando_pedido_proveedor
 
@@ -486,6 +487,7 @@ PROCESSOR_MAP = {
     "puma":             {"func": process_puma_pedido_proveedor,     "ext": ".csv"},
     "saucony":          {"func": process_saucony_pedido_proveedor,  "ext": ".csv"},
     "topper":           {"func": process_topper_pedido_proveedor,   "ext": ".csv"},
+    "winar":            {"func": process_winar_pedido_proveedor,    "ext": ".csv"},
     # Propuesta de Compra
     "adidas_propuesta": {"func": process_adidas_propuesta_compra,  "ext": ".csv"},
     "nike":             {"func": process_nike_propuesta_compra,     "ext": ".csv"},
@@ -514,6 +516,7 @@ EXPECTED_INPUT_EXT = {
     "puma":             ".csv",
     "saucony":          ".xlsx",
     "topper":           ".txt",
+    "winar":            ".xlsx",
     "adidas_propuesta": ".xlsx",
     "nike":             ".xlsx",
     "puma_propuesta":   ".xlsx",
@@ -538,6 +541,7 @@ AUDITORIA_PROMOS_PROVIDER_KEYS = {
     "puma",
     "saucony",
     "topper",
+    "winar",
     "adidas_propuesta",
     "nike",
     "puma_propuesta",
