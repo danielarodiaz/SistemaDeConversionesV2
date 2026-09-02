@@ -17,7 +17,7 @@ ITEC_HEADER = (
     "Marca|Desc_Marca|GENERO|Desc_Genero|Silueta|Desc_Silueta|Uso|Desc_Uso|Promo|Desc_Promo|||||||||||||||||||"
     "Codigo_de_Barra|Talle|Desc_Talle|Valor_Talle|Des._Valor   Talle|Color|Des._Color|Valor_Color|"
     "Desc._Valor_Color|||||||||Proveedor_Habitual||||||||||||||||||||||CODIGO|NOMBRE|VALOR|CODIGO|VALOR|"
-    "CANAL|codigoCapsula|descripcionCapsula|codigoDivision|descripcionDivision|codigoTemporada|descripcionTemporada"
+    "CANAL|codigoCapsula|codigoDivision|codigoTemporada"
 ).split("|")
 
 LCOC_HEADER = "CABECERA|PERIODO|tipo|Precio|Cod Articulo".split("|")
@@ -50,7 +50,7 @@ def fila_itec(articulo):
     row = [
         "ITEC1_",
         _valor(articulo, "codigo"),
-        _valor(articulo, "descripcion"),
+        _valor(articulo, "descripcion").upper(),
         _valor(articulo, "tipoProducto"),
         _valor(articulo, "descripcionProducto"),
         "",
@@ -96,11 +96,8 @@ def fila_itec(articulo):
         _valor(articulo, "genero2"),
         "",
         _valor(articulo, "codigoCapsula"),
-        "",
         _valor(articulo, "codigoDivision"),
-        "",
         _valor(articulo, "codigoTemporada"),
-        "",
     ])
     return row
 
@@ -184,7 +181,7 @@ def generar_csv_complementario_abm(complementarios, codigos_cruzar, output_folde
         codigo = _valor(comp, "codigo").strip()
         if not codigo:
             return
-        rows.append(fila_comp(comp, codigos_cruzar.get((codigo, "")) or codigo))
+        rows.append(fila_comp(comp, codigos_cruzar[(codigo, "")]))
 
     for comp in complementarios:
         codigo = _valor(comp, "codigo").strip()
@@ -194,7 +191,7 @@ def generar_csv_complementario_abm(complementarios, codigos_cruzar, output_folde
         codigo_actual = codigo
         representante_padre = representante_padre or comp
         clave = (_valor(comp, "codigo").strip(), _valor(comp, "codigoBarra").strip())
-        rows.append(fila_comp(comp, codigos_cruzar.get(clave) or _valor(comp, "codigoBarra")))
+        rows.append(fila_comp(comp, codigos_cruzar[clave]))
     agregar_padre(representante_padre)
     escribir_csv(path, ITCC_HEADER, rows)
     return path

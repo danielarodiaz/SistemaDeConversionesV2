@@ -505,18 +505,30 @@ def exportar_complementarios(comp_ids=None):
         if not complementarios:
             raise ValueError("No hay complementarios para exportar.")
 
-        pares = [(c.codigo, c.codigoBarra) for c in complementarios]
+        pares = [
+            (str(c.codigo or "").strip(), str(c.codigoBarra or "").strip())
+            for c in complementarios
+        ]
         pares.extend((codigo, "") for codigo in {str(c.codigo or "").strip() for c in complementarios if c.codigo})
         codigos_cruzar = obtener_codigos_cruzar_articulos(pares)
-        fallbacks = len(pares) - len(codigos_cruzar)
-        if fallbacks:
-            print(f"ABM Articulos Complementario: {fallbacks} cruce(s) sin match CEGID; se usa codigoBarra como fallback.")
+        faltantes = [par for par in pares if par not in codigos_cruzar]
+        if faltantes:
+            detalle = ", ".join(
+                f"{codigo}/{barra or 'PADRE'}"
+                for codigo, barra in faltantes[:8]
+            )
+            extra = "" if len(faltantes) <= 8 else f" y {len(faltantes) - 8} mas"
+            raise ValueError(
+                "No se pudo obtener el ID de CEGID para el complementario. "
+                f"Registros sin match: {detalle}{extra}. "
+                "Importa primero el ART en CEGID o revisa codigo/codigo de barra y vuelve a intentar."
+            )
         for comp in complementarios:
             clave = (str(comp.codigo or "").strip(), str(comp.codigoBarra or "").strip())
-            comp.codigoCruzar = codigos_cruzar.get(clave) or comp.codigoBarra
+            comp.codigoCruzar = codigos_cruzar[clave]
         path = generar_csv_complementario_abm(complementarios, codigos_cruzar, OUTPUT_FOLDER)
         return {
             "filename": os.path.basename(path),
             "exported": len(complementarios),
-            "fallbacks": fallbacks,
+            "fallbacks": 0,
         }

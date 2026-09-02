@@ -67,20 +67,26 @@ def test_columnas_exportadores_abm():
 
     assert len(fila_itec(articulo)) == len(ITEC_HEADER)
     art_row = fila_itec(articulo)
-    assert len(ITEC_HEADER) == 100
+    assert len(ITEC_HEADER) == 97
     assert ITEC_HEADER.index("Departamento") == 19
     assert ITEC_HEADER.index("Codigo_de_Barra") == 49
     assert ITEC_HEADER.index("Proveedor_Habitual") == 66
     assert ITEC_HEADER.index("CODIGO") == 88
+    assert ITEC_HEADER.index("CANAL") == 93
+    assert ITEC_HEADER.index("codigoCapsula") == 94
+    assert ITEC_HEADER.index("codigoDivision") == 95
+    assert ITEC_HEADER.index("codigoTemporada") == 96
+    assert art_row[2] == "ARTICULO PRUEBA"
     assert art_row[49] == "7790001"
     assert art_row[66] == "Proveedor"
     assert art_row[88] == "CM"
+    assert art_row[93] == ""
+    assert art_row[94] == "CAP"
+    assert art_row[95] == "DIV"
+    assert art_row[96] == "TEMP"
     assert art_row[ITEC_HEADER.index("Grupo")] == ""
     assert art_row[ITEC_HEADER.index("Desc_Grupo")] == ""
     assert art_row[ITEC_HEADER.index("CANAL")] == ""
-    assert art_row[ITEC_HEADER.index("descripcionCapsula")] == ""
-    assert art_row[ITEC_HEADER.index("descripcionDivision")] == ""
-    assert art_row[ITEC_HEADER.index("descripcionTemporada")] == ""
     assert len(["LCOC1_", "PERMA", "LCMAR", "1,00", "ART1"]) == len(LCOC_HEADER)
     assert len(["LPMC1_", "ART1", "2,00"]) == len(LPMC_HEADER)
     assert len(fila_comp(complementario, "CEGID1")) == len(ITCC_HEADER)
