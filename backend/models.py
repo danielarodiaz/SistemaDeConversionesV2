@@ -301,6 +301,7 @@ class precioCompra(Base): #Esta tabla se genera mientras se va creando los artic
     id = Column(Integer, primary_key=True, autoincrement=True)
     codigoArticulo = Column(String(50), index=True)
     precioCompra = Column(Numeric(18, 4), default=0)
+    lote_id = Column(Integer, ForeignKey('abm_articulos_lotes.id'), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     
 class precioVenta(Base): #Esta tabla se genera mientras se va creando los articulos
@@ -308,6 +309,7 @@ class precioVenta(Base): #Esta tabla se genera mientras se va creando los articu
     id = Column(Integer, primary_key=True, autoincrement=True)
     codigoArticulo = Column(String(50), index=True)
     precioVenta = Column(Numeric(18, 4), default=0)
+    lote_id = Column(Integer, ForeignKey('abm_articulos_lotes.id'), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     
 class promo(Base):
@@ -343,6 +345,15 @@ class silueta(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     codigoSilueta = Column(String(50), index=True)
     descripcionSilueta = Column(String(30), index=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+class ABMArticuloLote(Base):
+    __tablename__ = 'abm_articulos_lotes'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(String(50), unique=True, nullable=False, index=True)
+    descripcion = Column(String(255), nullable=True)
+    estado = Column(String(50), default='activo', nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
 class Articulo(Base):
@@ -410,6 +421,7 @@ class Articulo(Base):
     # Control interno de base de datos
     sector = Column(String(50), default='base', nullable=True, index=True)
     estado = Column(String(50), default='borrador', nullable=True, index=True)
+    lote_id = Column(Integer, ForeignKey('abm_articulos_lotes.id'), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     
 class ArticuloComplementario(Base):
@@ -427,6 +439,7 @@ class ArticuloComplementario(Base):
     objetivoGeneral = Column(String(50), index=True)
     sector = Column(String(50), default='base', nullable=True, index=True)
     estado = Column(String(50), default='borrador', nullable=True, index=True)
+    lote_id = Column(Integer, ForeignKey('abm_articulos_lotes.id'), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
 class TalleMaestro(Base):
