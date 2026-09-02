@@ -842,6 +842,18 @@ def _clear_abm_form_state(preserve=None):
             st.session_state.pop(key, None)
 
 
+def _finalizar_descarga_complementario(comp_ids):
+    try:
+        ids = [int(comp_id) for comp_id in (comp_ids or []) if comp_id is not None]
+        if ids:
+            _api_delete_json("/api/abm-articulos/complementarios", {"ids": ids})
+    except Exception as exc:
+        st.session_state["abm_complementario_cleanup_error"] = str(exc)
+    finally:
+        _load_abm_complementarios.clear()
+        _clear_abm_form_state(preserve={"abm_complementario_cleanup_error"})
+
+
 def _color_talle_para_tipo(tipo_codigo, colores):
     mapping = {
         "ACC": "C01",
@@ -1000,7 +1012,7 @@ def _render_abm_articulos() -> None:
 
     c9, c10, c11 = st.columns(3)
     division_sel = c9.selectbox("Desc. Division", [None] + catalogos.get("divisiones", []), format_func=_label, key="abm_division")
-    temporada_sel = c10.selectbox("Desc. Temporada", [None] + temporadas, index=_default_index(temporadas, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_temporada")
+    temporada_sel = c10.selectbox("Desc. Temporada", [None] + temporadas, index=_default_index(temporadas, ["TODO EL AÑO"]), format_func=_label, key="abm_temporada")
     material_sel = c11.selectbox("Desc. Material", [None] + materiales, index=_default_index(materiales, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_material")
 
     c12, c13, c14 = st.columns(3)
@@ -1445,7 +1457,8 @@ def _render_abm_articulos() -> None:
                 st.session_state["abm_complementario_download"] = {
                     "content": download_res.content,
                     "filename": data["filename"],
-                    "message": f"Complementarios exportados: {data.get('exported', 0)}. Fallback CEGID: {data.get('fallbacks', 0)}.",
+                    "message": f"Complementarios exportados: {data.get('exported', 0)}. IDs CEGID encontrados correctamente.",
+                    "ids": comp_ids_seleccionados,
                 }
                 _refresh_abm_listados()
                 st.rerun()
@@ -1463,9 +1476,13 @@ def _render_abm_articulos() -> None:
             file_name=comp_download["filename"],
             mime="text/csv",
             width="stretch",
-            on_click=_clear_abm_form_state,
+            on_click=_finalizar_descarga_complementario,
+            args=(comp_download.get("ids", []),),
             key="abm_download_complementario_btn",
         )
+    cleanup_error = st.session_state.pop("abm_complementario_cleanup_error", None)
+    if cleanup_error:
+        st.warning(f"El archivo se descargo, pero no se pudo limpiar el listado complementario: {cleanup_error}")
 
     if False:
         comp_edit_id = st.selectbox(
@@ -1704,11 +1721,6 @@ def _render_config_update_body(modulo, item):
             st.session_state[f"abm_config_{modulo}_dialog"] = {"accion": "modificar", "item": item}
             st.session_state[f"abm_config_{modulo}_modal_payload"] = _payload_config_simple(modulo, codigo, descripcion)
             st.rerun()
-
-    if st.button("Cancelar", key=f"abm_config_{modulo}_modal_cancel_{item['id']}", type="secondary", width="stretch"):
-        st.session_state.pop(f"abm_config_{modulo}_dialog", None)
-        st.session_state.pop(f"abm_config_{modulo}_modal_payload", None)
-        st.rerun()
 
 
 def _render_config_dialog(modulo, dialog_state=None):
