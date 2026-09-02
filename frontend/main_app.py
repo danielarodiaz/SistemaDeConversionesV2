@@ -643,7 +643,18 @@ def _render_audit_results(data: dict) -> None:
             width="stretch",
         )
     else:
-        st.error("El archivo se procesó, pero no se pudo preparar la descarga. Probá nuevamente o avisá a sistemas.")
+        try:
+            payload = download_res.json()
+        except ValueError:
+            payload = {}
+        mensaje = payload.get("message") or payload.get("error")
+        if mensaje:
+            st.error(mensaje)
+        else:
+            st.error(
+                "No se pudo preparar la descarga porque el archivo generado no está disponible. "
+                "Probá procesarlo nuevamente o avisá a sistemas para revisar la carpeta de salida."
+            )
 
 
 def _render_process_error(res: requests.Response) -> None:
