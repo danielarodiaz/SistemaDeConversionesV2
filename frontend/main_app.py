@@ -497,6 +497,10 @@ def _render_auditoria_logistica() -> None:
 # ── Función reutilizable para mostrar resultados de auditoría ─────────────────
 def _render_audit_results(data: dict) -> None:
     """Muestra los resultados de auditoría y el botón de descarga."""
+    if data.get("status") != "success" or not data.get("download_url") or not data.get("filename"):
+        st.error(data.get("message") or data.get("error") or "No se pudo generar un archivo descargable.")
+        return
+
     audit = data.get("audit", {})
     has_audit = data.get("has_audit", False)
 
@@ -638,6 +642,21 @@ def _render_audit_results(data: dict) -> None:
             mime=mime,
             width="stretch",
         )
+    else:
+        st.error("El archivo se procesó, pero no se pudo preparar la descarga. Probá nuevamente o avisá a sistemas.")
+
+
+def _render_process_error(res: requests.Response) -> None:
+    try:
+        payload = res.json()
+    except ValueError:
+        payload = {}
+
+    mensaje = payload.get("message") or payload.get("error")
+    if mensaje:
+        st.error(mensaje)
+    else:
+        st.error("No se pudo procesar el archivo. Revisá que sea el archivo correcto para este proveedor.")
 
 
 def _render_provider_card(id_p: str, info: dict) -> None:
@@ -676,7 +695,7 @@ def _render_provider_card(id_p: str, info: dict) -> None:
                         if res.status_code == 200:
                             _render_audit_results(res.json())
                         else:
-                            st.error(f"Error: {res.text}")
+                            _render_process_error(res)
                     except Exception as e:
                         st.error(f"Error de conexión: {e}")
             return
@@ -701,7 +720,7 @@ def _render_provider_card(id_p: str, info: dict) -> None:
                         if res.status_code == 200:
                             _render_audit_results(res.json())
                         else:
-                            st.error(f"Error: {res.text}")
+                            _render_process_error(res)
                     except Exception as e:
                         st.error(f"Error de conexión: {e}")
 

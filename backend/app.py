@@ -584,6 +584,27 @@ def _leer_codigos_barras_de_salida(path: str) -> list:
     return list(dict.fromkeys(codigos))
 
 
+def _mensaje_archivo_no_generado(provider_key: str) -> str:
+    nombre = provider_key.replace("_", " ").title()
+    return (
+        f"No se pudo generar el archivo de {nombre}. "
+        "El procesador no encontró filas válidas para importar. "
+        "Revisá que el archivo corresponda al proveedor elegido y que tenga cantidades, fechas y códigos de barras válidos."
+    )
+
+
+def _mensaje_error_procesador(provider_key: str, error: Exception) -> str:
+    nombre = provider_key.replace("_", " ").title()
+    detalle = str(error).strip()
+    if detalle.lower().startswith("no se pudo procesar"):
+        return detalle
+    return (
+        f"No se pudo procesar el archivo de {nombre}. "
+        "Revisá que sea el archivo correcto y que mantenga el formato esperado. "
+        f"Detalle: {detalle}"
+    )
+
+
 @app.route('/api/process/<provider_id>', methods=['POST'])
 def process_file(provider_id):
     provider_key = provider_id.lower()
@@ -640,6 +661,12 @@ def process_file(provider_id):
             result = {"output_path": result}
         elif isinstance(result, dict) and result.get("output_path"):
             result_output_path = result["output_path"]
+
+        if not result_output_path or not os.path.exists(result_output_path) or os.path.getsize(result_output_path) == 0:
+            return jsonify({
+                "status": "error",
+                "error": _mensaje_archivo_no_generado(provider_key),
+            }), 422
 
         # Detectar si el resultado contiene datos de auditoría
         audit_report = {
@@ -764,7 +791,11 @@ def process_file(provider_id):
         }), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "status": "error",
+            "error": _mensaje_error_procesador(provider_key, e),
+            "technical_error": str(e),
+        }), 500
 
 
 @app.route('/api/download/<filename>', methods=['GET'])
