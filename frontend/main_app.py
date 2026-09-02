@@ -866,6 +866,15 @@ def _default_index(items, terms, allow_none=True):
     return 0
 
 
+def _default_index_descripcion_exacta(items, descripcion, allow_none=True):
+    options = ([None] if allow_none else []) + list(items)
+    descripcion_norm = str(descripcion or "").strip().upper()
+    for idx, item in enumerate(options):
+        if item and str(item.get("descripcion", "")).strip().upper() == descripcion_norm:
+            return idx
+    return 0
+
+
 def _clear_abm_form_state(preserve=None):
     preserve = set(preserve or [])
     prefixes = ("abm_",)
@@ -1016,6 +1025,7 @@ def _render_abm_articulos() -> None:
     seg_proveedores = catalogos.get("segmentaciones_proveedor", [])
     seg_marathon = catalogos.get("segmentaciones_marathon", [])
     vidrieras = catalogos.get("vidrieras", [])
+    divisiones = catalogos.get("divisiones", [])
     objetivos_filtrados = _objetivos_para_tipo(tipo_sel, catalogos.get("objetivos", []))
 
     c6, c7, c8 = st.columns(3)
@@ -1044,7 +1054,13 @@ def _render_abm_articulos() -> None:
     capsula_sel = c8c.selectbox("Desc. Capsula", [None] + capsulas, index=_default_index(capsulas, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_capsula")
 
     c9, c10, c11 = st.columns(3)
-    division_sel = c9.selectbox("Desc. Division", [None] + catalogos.get("divisiones", []), format_func=_label, key="abm_division")
+    division_sel = c9.selectbox(
+        "Desc. Division",
+        [None] + divisiones,
+        index=_default_index_descripcion_exacta(divisiones, "MARATHON"),
+        format_func=_label,
+        key="abm_division",
+    )
     temporada_sel = c10.selectbox("Desc. Temporada", [None] + temporadas, index=_default_index(temporadas, ["TODO EL AÑO"]), format_func=_label, key="abm_temporada")
     material_sel = c11.selectbox("Desc. Material", [None] + materiales, index=_default_index(materiales, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_material")
 
