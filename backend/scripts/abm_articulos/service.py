@@ -168,6 +168,10 @@ def _get(dct, key, default=""):
     return default if value is None else value
 
 
+def _upper(valor):
+    return str(valor or "").upper()
+
+
 def _next_articulo_id(session):
     actual = session.execute(
         text("SELECT ISNULL(MAX(id), 0) FROM dbo.articulos WITH (UPDLOCK, HOLDLOCK)")
@@ -212,7 +216,7 @@ def crear_borrador(payload, lote_uuid=None):
             articulo = Articulo(
                 id=next_id,
                 codigo=_get(base, "codigo"),
-                descripcion=_get(base, "descripcion"),
+                descripcion=_upper(_get(base, "descripcion")),
                 tipoProducto=_get(base, "tipoProducto"),
                 descripcionProducto=_get(base, "descripcionProducto"),
                 grupo=_get(base, "grupo"),

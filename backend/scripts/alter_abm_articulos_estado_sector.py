@@ -102,6 +102,17 @@ def migrar_lote_legacy(conn):
     print("OK lote legacy")
 
 
+def normalizar_descripciones_articulos(conn):
+    sql = """
+    UPDATE dbo.articulos
+    SET descripcion = UPPER(descripcion)
+    WHERE descripcion IS NOT NULL
+      AND descripcion <> UPPER(descripcion)
+    """
+    conn.execute(text(sql))
+    print("OK articulos.descripcion uppercase")
+
+
 def main():
     with engine.begin() as conn:
         for idx, sql in enumerate(CREATE_TABLES, start=1):
@@ -110,6 +121,7 @@ def main():
         for tabla, columna, definicion in ALTERS:
             agregar_columna_si_no_existe(conn, tabla, columna, definicion)
         migrar_lote_legacy(conn)
+        normalizar_descripciones_articulos(conn)
         for tabla, constraint, columna in FOREIGN_KEYS:
             agregar_fk_lote_si_no_existe(conn, tabla, constraint, columna)
 
