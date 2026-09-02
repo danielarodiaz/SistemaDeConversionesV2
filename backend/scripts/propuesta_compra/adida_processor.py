@@ -14,7 +14,8 @@ def parsear_fecha(fecha_str):
         "jun": "06", "jun.": "06",
         "jul": "07", "jul.": "07",
         "ago": "08", "ago.": "08",
-        "sep": "09", "sep.": "09",
+        "sep": "09", "sep.": "09", "sept": "09", "sept.": "09",
+        "set": "09", "set.": "09", "septiembre": "09",
         "oct": "10", "oct.": "10",
         "nov": "11", "nov.": "11",
         "dic": "12", "dic.": "12"
@@ -101,6 +102,12 @@ def process_adidas_propuesta_compra(input_path, output_path):
 
                 fecha_doc = str(row.get('Order creation date', '')).strip()
                 fecha_doc_parseada = parsear_fecha(fecha_doc)
+                if not fecha_entrega or not fecha_doc_parseada:
+                    print(
+                        "⚠️ Fila omitida por fecha no reconocida. "
+                        f"Documento: {fecha_doc} | Entrega: {fecha_entrega_raw}"
+                    )
+                    continue
 
                 ean = str(row.get('EAN', '')).strip()
                 if not ean or ean.lower() == 'nan':
@@ -153,7 +160,11 @@ def process_adidas_propuesta_compra(input_path, output_path):
 
         else:
             print("⚠️ No se generaron datos válidos para exportar.")
-            return {"output_path": output_path, "ean_vacios": ean_vacios}
+            raise RuntimeError(
+                "No se generaron filas válidas para importar. Revisá que el archivo tenga cantidades "
+                "mayores a cero y fechas de documento/entrega reconocibles."
+            )
 
     except Exception as e:
         print(f"❌ Error al procesar el archivo: {e}")
+        raise RuntimeError(f"No se pudo procesar Adidas Propuesta. {e}")
