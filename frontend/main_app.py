@@ -7,6 +7,7 @@ import math
 import platform
 import sys
 import traceback
+import uuid
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -171,14 +172,44 @@ def _load_abm_catalogos() -> dict:
     return _api_get("/api/abm-articulos/catalogos")
 
 
-@st.cache_data(ttl=15, show_spinner=False)
-def _load_abm_borradores() -> list:
-    return _api_get("/api/abm-articulos/borradores").get("items", [])
+def _get_abm_lote_uuid():
+    try:
+        query_lote = st.query_params.get("abm_lote")
+    except Exception:
+        query_lote = None
+    if query_lote:
+        st.session_state["abm_lote_uuid"] = str(query_lote)
+    if "abm_lote_uuid" not in st.session_state:
+        st.session_state["abm_lote_uuid"] = str(uuid.uuid4())
+        try:
+            st.query_params["abm_lote"] = st.session_state["abm_lote_uuid"]
+        except Exception:
+            pass
+    return st.session_state["abm_lote_uuid"]
+
+
+def _reset_abm_lote_uuid():
+    st.session_state["abm_lote_uuid"] = str(uuid.uuid4())
+    try:
+        st.query_params["abm_lote"] = st.session_state["abm_lote_uuid"]
+    except Exception:
+        pass
+
+
+def _with_abm_lote(payload=None):
+    data = dict(payload or {})
+    data["lote_uuid"] = _get_abm_lote_uuid()
+    return data
 
 
 @st.cache_data(ttl=15, show_spinner=False)
-def _load_abm_complementarios() -> list:
-    return _api_get("/api/abm-articulos/complementarios").get("items", [])
+def _load_abm_borradores(lote_uuid: str) -> list:
+    return _api_get("/api/abm-articulos/borradores", params={"lote_uuid": lote_uuid}).get("items", [])
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _load_abm_complementarios(lote_uuid: str) -> list:
+    return _api_get("/api/abm-articulos/complementarios", params={"lote_uuid": lote_uuid}).get("items", [])
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -198,8 +229,9 @@ def _refresh_abm_config(modulo: str):
 def _reload_abm_listados():
     _load_abm_borradores.clear()
     _load_abm_complementarios.clear()
-    st.session_state["abm_borradores_items"] = _load_abm_borradores()
-    st.session_state["abm_complementarios_items"] = _load_abm_complementarios()
+    lote_uuid = _get_abm_lote_uuid()
+    st.session_state["abm_borradores_items"] = _load_abm_borradores(lote_uuid)
+    st.session_state["abm_complementarios_items"] = _load_abm_complementarios(lote_uuid)
 
 
 def _ensure_abm_listados_loaded():
@@ -846,12 +878,13 @@ def _finalizar_descarga_complementario(comp_ids):
     try:
         ids = [int(comp_id) for comp_id in (comp_ids or []) if comp_id is not None]
         if ids:
-            _api_delete_json("/api/abm-articulos/complementarios", {"ids": ids})
+            _api_delete_json("/api/abm-articulos/complementarios", _with_abm_lote({"ids": ids}))
     except Exception as exc:
         st.session_state["abm_complementario_cleanup_error"] = str(exc)
     finally:
         _load_abm_complementarios.clear()
         _clear_abm_form_state(preserve={"abm_complementario_cleanup_error"})
+        _reset_abm_lote_uuid()
 
 
 def _color_talle_para_tipo(tipo_codigo, colores):
@@ -1251,12 +1284,12 @@ def _render_abm_articulos() -> None:
         try:
             result = _api_post(
                 "/api/abm-articulos/borradores",
-                {
+                _with_abm_lote({
                     "base": base,
                     "complementario": complementario,
                     "talles": talles_payload,
                     "precios": {"precioCompra": precio_compra, "precioVenta": precio_venta},
-                },
+                }),
             )
             st.success(f"Borrador guardado: {result.get('created', 0)} fila(s).")
             _refresh_abm_listados()
@@ -1310,7 +1343,7 @@ def _render_abm_articulos() -> None:
                 st.warning("Selecciona al menos un borrador para eliminar.")
                 return
             try:
-                result = _api_delete_json("/api/abm-articulos/borradores", {"ids": ids_seleccionados})
+                result = _api_delete_json("/api/abm-articulos/borradores", _with_abm_lote({"ids": ids_seleccionados}))
                 st.success(f"Borradores eliminados: {result.get('deleted', 0)}.")
                 st.session_state.pop("abm_borradores_df", None)
                 _refresh_abm_listados()
@@ -1323,7 +1356,7 @@ def _render_abm_articulos() -> None:
                 st.warning("Selecciona al menos un borrador para exportar.")
                 return
             try:
-                data = _api_post("/api/abm-articulos/exportar", {"ids": ids_seleccionados})
+                data = _api_post("/api/abm-articulos/exportar", _with_abm_lote({"ids": ids_seleccionados}))
                 download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
                 if download_res.status_code == 200:
                     st.session_state["abm_export_download"] = {
@@ -1332,7 +1365,7 @@ def _render_abm_articulos() -> None:
                         "message": f"Exportados {data.get('exported', 0)} articulo(s).",
                     }
                     _refresh_abm_listados()
-                    _clear_abm_form_state(preserve={"abm_export_download", "abm_complementario_download"})
+                    _clear_abm_form_state(preserve={"abm_lote_uuid", "abm_export_download", "abm_complementario_download"})
                     st.rerun()
                 else:
                     st.error("El ZIP se genero, pero no se pudo descargar.")
@@ -1424,7 +1457,7 @@ def _render_abm_articulos() -> None:
                     if nuevo != anterior:
                         payload[campo] = nuevo
                 if payload:
-                    _api_put(f"/api/abm-articulos/complementarios/{int(comp_id)}", payload)
+                    _api_put(f"/api/abm-articulos/complementarios/{int(comp_id)}", _with_abm_lote(payload))
                     guardados += 1
             st.success(f"Complementarios actualizados: {guardados}.")
             st.session_state.pop("abm_complementarios_df", None)
@@ -1438,7 +1471,7 @@ def _render_abm_articulos() -> None:
             st.warning("Selecciona al menos un complementario para borrar.")
             return
         try:
-            result = _api_delete_json("/api/abm-articulos/complementarios", {"ids": comp_ids_seleccionados})
+            result = _api_delete_json("/api/abm-articulos/complementarios", _with_abm_lote({"ids": comp_ids_seleccionados}))
             st.success(f"Complementarios eliminados: {result.get('deleted', 0)}.")
             st.session_state.pop("abm_complementarios_df", None)
             _refresh_abm_listados()
@@ -1451,7 +1484,7 @@ def _render_abm_articulos() -> None:
             st.warning("Selecciona al menos un complementario para descargar.")
             return
         try:
-            data = _api_post("/api/abm-articulos/complementarios/exportar", {"ids": comp_ids_seleccionados})
+            data = _api_post("/api/abm-articulos/complementarios/exportar", _with_abm_lote({"ids": comp_ids_seleccionados}))
             download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
             if download_res.status_code == 200:
                 st.session_state["abm_complementario_download"] = {
@@ -1514,7 +1547,7 @@ def _render_abm_articulos() -> None:
                             "Vidriera": vidriera_edit,
                             "Año": anio_edit,
                             "Objetivo Gen": objetivo_edit,
-                        },
+                        } | {"lote_uuid": _get_abm_lote_uuid()},
                     )
                     st.success("Complementario actualizado.")
                     st.session_state.pop("abm_complementarios_df", None)

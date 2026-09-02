@@ -280,10 +280,15 @@ def abm_articulos_catalogos():
         return jsonify({"error": str(e)}), 500
 
 
+def _abm_lote_uuid(payload=None):
+    payload = payload or {}
+    return request.args.get("lote_uuid") or payload.get("lote_uuid") or "legacy-default"
+
+
 @app.route('/api/abm-articulos/borradores', methods=['GET'])
 def abm_articulos_borradores():
     try:
-        return jsonify({"items": abm_listar_borradores()}), 200
+        return jsonify({"items": abm_listar_borradores(_abm_lote_uuid())}), 200
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -294,7 +299,7 @@ def abm_articulos_borradores():
 def abm_articulos_crear_borrador():
     try:
         payload = request.get_json(force=True) or {}
-        result = abm_crear_borrador(payload)
+        result = abm_crear_borrador(payload, _abm_lote_uuid(payload))
         return jsonify({"status": "success", **result}), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -307,7 +312,7 @@ def abm_articulos_crear_borrador():
 @app.route('/api/abm-articulos/borradores/<int:borrador_id>', methods=['DELETE'])
 def abm_articulos_eliminar_borrador(borrador_id):
     try:
-        deleted = abm_eliminar_borrador(borrador_id)
+        deleted = abm_eliminar_borrador(borrador_id, _abm_lote_uuid())
         if not deleted:
             return jsonify({"error": "Borrador no encontrado"}), 404
         return jsonify({"status": "success"}), 200
@@ -321,7 +326,7 @@ def abm_articulos_eliminar_borrador(borrador_id):
 def abm_articulos_eliminar_borradores():
     try:
         payload = request.get_json(silent=True) or {}
-        deleted = abm_eliminar_borradores(payload.get("ids", []))
+        deleted = abm_eliminar_borradores(payload.get("ids", []), _abm_lote_uuid(payload))
         return jsonify({"status": "success", "deleted": deleted}), 200
     except Exception as e:
         import traceback
@@ -333,7 +338,7 @@ def abm_articulos_eliminar_borradores():
 def abm_articulos_exportar():
     try:
         payload = request.get_json(silent=True) or {}
-        result = abm_exportar_borradores(payload.get("ids", []))
+        result = abm_exportar_borradores(payload.get("ids", []), _abm_lote_uuid(payload))
         backend_url = os.getenv('BACKEND_URL', 'http://localhost:5000')
         return jsonify({
             "status": "success",
@@ -351,7 +356,7 @@ def abm_articulos_exportar():
 @app.route('/api/abm-articulos/complementarios', methods=['GET'])
 def abm_articulos_complementarios():
     try:
-        return jsonify({"items": abm_listar_complementarios()}), 200
+        return jsonify({"items": abm_listar_complementarios(_abm_lote_uuid())}), 200
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -362,7 +367,7 @@ def abm_articulos_complementarios():
 def abm_articulos_actualizar_complementario(comp_id):
     try:
         payload = request.get_json(force=True) or {}
-        item = abm_actualizar_complementario(comp_id, payload)
+        item = abm_actualizar_complementario(comp_id, payload, _abm_lote_uuid(payload))
         if item is None:
             return jsonify({"error": "Complementario no encontrado"}), 404
         return jsonify({"status": "success", "item": item}), 200
@@ -379,6 +384,7 @@ def abm_articulos_eliminar_complementarios():
         deleted = abm_eliminar_complementarios(
             comp_ids=payload.get("ids", []),
             borrar_todo=bool(payload.get("all", False)),
+            lote_uuid=_abm_lote_uuid(payload),
         )
         return jsonify({"status": "success", "deleted": deleted}), 200
     except Exception as e:
@@ -391,7 +397,7 @@ def abm_articulos_eliminar_complementarios():
 def abm_articulos_exportar_complementarios():
     try:
         payload = request.get_json(silent=True) or {}
-        result = abm_exportar_complementarios(payload.get("ids", []))
+        result = abm_exportar_complementarios(payload.get("ids", []), _abm_lote_uuid(payload))
         backend_url = os.getenv('BACKEND_URL', 'http://localhost:5000')
         return jsonify({
             "status": "success",

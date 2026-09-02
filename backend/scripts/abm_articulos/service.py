@@ -1,10 +1,11 @@
 import os
 from functools import lru_cache
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from backend.config import OUTPUT_FOLDER
 from backend.models import (
+    ABMArticuloLote,
     Articulo,
     ArticuloComplementario,
     Proveedor,
@@ -168,15 +169,33 @@ def _get(dct, key, default=""):
 
 
 def _next_articulo_id(session):
-    actual = session.query(func.max(Articulo.id)).scalar()
+    actual = session.execute(
+        text("SELECT ISNULL(MAX(id), 0) FROM dbo.articulos WITH (UPDLOCK, HOLDLOCK)")
+    ).scalar()
     return int(actual or 0) + 1
 
 
-def crear_borrador(payload):
+def _normalizar_lote_uuid(lote_uuid):
+    return str(lote_uuid or "legacy-default").strip() or "legacy-default"
+
+
+def asegurar_lote(session, lote_uuid=None):
+    lote_uuid = _normalizar_lote_uuid(lote_uuid)
+    lote = session.query(ABMArticuloLote).filter(ABMArticuloLote.uuid == lote_uuid).one_or_none()
+    if lote:
+        return lote
+    lote = ABMArticuloLote(uuid=lote_uuid, descripcion="Mesa de trabajo ABM Articulos", estado="activo")
+    session.add(lote)
+    session.flush()
+    return lote
+
+
+def crear_borrador(payload, lote_uuid=None):
     base = payload.get("base") or {}
     comp = payload.get("complementario") or {}
     talles = payload.get("talles") or []
     precios = payload.get("precios") or {}
+    lote_uuid = _normalizar_lote_uuid(lote_uuid or payload.get("lote_uuid"))
     if not talles:
         raise ValueError("Selecciona al menos un talle.")
     if not _get(base, "codigo"):
@@ -185,6 +204,7 @@ def crear_borrador(payload):
         raise ValueError("El precio de venta debe ser mayor al precio de compra.")
 
     with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
         next_id = _next_articulo_id(uow.session)
         creados = []
         for talle in talles:
@@ -233,6 +253,7 @@ def crear_borrador(payload):
                 descripcionTemporada=_get(base, "descripcionTemporada"),
                 sector="base",
                 estado="borrador",
+                lote_id=lote.id,
             )
             complementario = ArticuloComplementario(
                 codigo=articulo.codigo,
@@ -247,6 +268,7 @@ def crear_borrador(payload):
                 objetivoGeneral=_get(comp, "objetivoGeneral"),
                 sector="base",
                 estado="borrador",
+                lote_id=lote.id,
             )
             uow.session.add(articulo)
             uow.session.add(complementario)
@@ -254,9 +276,9 @@ def crear_borrador(payload):
             next_id += 1
 
         if "precioCompra" in precios:
-            uow.session.add(precioCompra(codigoArticulo=_get(base, "codigo"), precioCompra=precios.get("precioCompra") or 0))
+            uow.session.add(precioCompra(codigoArticulo=_get(base, "codigo"), precioCompra=precios.get("precioCompra") or 0, lote_id=lote.id))
         if "precioVenta" in precios:
-            uow.session.add(precioVenta(codigoArticulo=_get(base, "codigo"), precioVenta=precios.get("precioVenta") or 0))
+            uow.session.add(precioVenta(codigoArticulo=_get(base, "codigo"), precioVenta=precios.get("precioVenta") or 0, lote_id=lote.id))
 
         uow.session.flush()
         return {"items": [_serializar_articulo(a) for a in creados], "created": len(creados)}
@@ -302,22 +324,24 @@ def _serializar_articulo(articulo):
     }
 
 
-def listar_borradores():
+def listar_borradores(lote_uuid=None):
     with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
         rows = (
             uow.session.query(Articulo)
-            .filter(Articulo.sector == "base", Articulo.estado == "borrador")
+            .filter(Articulo.sector == "base", Articulo.estado == "borrador", Articulo.lote_id == lote.id)
             .order_by(Articulo.created_at.desc(), Articulo.id.desc())
             .all()
         )
         return [_serializar_articulo(row) for row in rows]
 
 
-def eliminar_borrador(articulo_id):
+def eliminar_borrador(articulo_id, lote_uuid=None):
     with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
         articulo = (
             uow.session.query(Articulo)
-            .filter(Articulo.id == articulo_id, Articulo.sector == "base", Articulo.estado == "borrador")
+            .filter(Articulo.id == articulo_id, Articulo.sector == "base", Articulo.estado == "borrador", Articulo.lote_id == lote.id)
             .one_or_none()
         )
         if not articulo:
@@ -329,6 +353,7 @@ def eliminar_borrador(articulo_id):
                 ArticuloComplementario.codigoBarra == articulo.codigoBarra,
                 ArticuloComplementario.sector == "base",
                 ArticuloComplementario.estado == "borrador",
+                ArticuloComplementario.lote_id == lote.id,
             )
             .delete(synchronize_session=False)
         )
@@ -336,16 +361,17 @@ def eliminar_borrador(articulo_id):
         return True
 
 
-def eliminar_borradores(articulo_ids):
+def eliminar_borradores(articulo_ids, lote_uuid=None):
     borrador_ids = [int(i) for i in (articulo_ids or []) if i is not None]
     if not borrador_ids:
         return 0
 
     eliminados = 0
     with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
         articulos = (
             uow.session.query(Articulo)
-            .filter(Articulo.id.in_(borrador_ids), Articulo.sector == "base", Articulo.estado == "borrador")
+            .filter(Articulo.id.in_(borrador_ids), Articulo.sector == "base", Articulo.estado == "borrador", Articulo.lote_id == lote.id)
             .all()
         )
         for articulo in articulos:
@@ -356,6 +382,7 @@ def eliminar_borradores(articulo_ids):
                     ArticuloComplementario.codigoBarra == articulo.codigoBarra,
                     ArticuloComplementario.sector == "base",
                     ArticuloComplementario.estado == "borrador",
+                    ArticuloComplementario.lote_id == lote.id,
                 )
                 .delete(synchronize_session=False)
             )
@@ -364,8 +391,11 @@ def eliminar_borradores(articulo_ids):
     return eliminados
 
 
-def _precio_map(session, model, campo):
-    rows = session.query(model).all()
+def _precio_map(session, model, campo, lote_id=None):
+    query = session.query(model)
+    if lote_id is not None and hasattr(model, "lote_id"):
+        query = query.filter(model.lote_id == lote_id)
+    rows = query.order_by(model.id).all()
     data = {}
     for row in rows:
         codigo = str(row.codigoArticulo or "")
@@ -374,13 +404,15 @@ def _precio_map(session, model, campo):
     return data
 
 
-def exportar_borradores(articulo_ids=None):
+def exportar_borradores(articulo_ids=None, lote_uuid=None):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
         ids = [int(i) for i in (articulo_ids or []) if i is not None]
         query = uow.session.query(Articulo).filter(
             Articulo.sector == "base",
             Articulo.estado == "borrador",
+            Articulo.lote_id == lote.id,
         )
         if ids:
             query = query.filter(Articulo.id.in_(ids))
@@ -397,6 +429,7 @@ def exportar_borradores(articulo_ids=None):
             .filter(
                 ArticuloComplementario.sector == "base",
                 ArticuloComplementario.estado == "borrador",
+                ArticuloComplementario.lote_id == lote.id,
             )
             .order_by(ArticuloComplementario.codigo, ArticuloComplementario.id)
             .all()
@@ -405,8 +438,8 @@ def exportar_borradores(articulo_ids=None):
             comp for comp in complementarios_candidatos
             if (str(comp.codigo or "").strip(), str(comp.codigoBarra or "").strip()) in pares_articulo
         ]
-        precios_compra = _precio_map(uow.session, precioCompra, "precioCompra")
-        precios_venta = _precio_map(uow.session, precioVenta, "precioVenta")
+        precios_compra = _precio_map(uow.session, precioCompra, "precioCompra", lote.id)
+        precios_venta = _precio_map(uow.session, precioVenta, "precioVenta", lote.id)
         zip_path = generar_zip_abm_articulos(
             articulos,
             complementarios,
@@ -444,18 +477,23 @@ def _serializar_complementario(comp):
     }
 
 
-def listar_complementarios():
+def listar_complementarios(lote_uuid=None):
     with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
         rows = (
             uow.session.query(ArticuloComplementario)
-            .filter(ArticuloComplementario.sector == "base", ArticuloComplementario.estado == "exportado")
+            .filter(
+                ArticuloComplementario.sector == "base",
+                ArticuloComplementario.estado == "exportado",
+                ArticuloComplementario.lote_id == lote.id,
+            )
             .order_by(ArticuloComplementario.codigo, ArticuloComplementario.id)
             .all()
         )
         return [_serializar_complementario(row) for row in rows]
 
 
-def actualizar_complementario(comp_id, payload):
+def actualizar_complementario(comp_id, payload, lote_uuid=None):
     campos = {
         "Edad": "codigoEdad",
         "Material": "codigoMaterial",
@@ -466,8 +504,9 @@ def actualizar_complementario(comp_id, payload):
         "Objetivo Gen": "objetivoGeneral",
     }
     with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
         comp = uow.session.get(ArticuloComplementario, int(comp_id))
-        if not comp or comp.sector != "base" or comp.estado != "exportado":
+        if not comp or comp.sector != "base" or comp.estado != "exportado" or comp.lote_id != lote.id:
             return None
         for externo, interno in campos.items():
             if externo in payload:
@@ -476,11 +515,13 @@ def actualizar_complementario(comp_id, payload):
         return _serializar_complementario(comp)
 
 
-def eliminar_complementarios(comp_ids=None, borrar_todo=False):
+def eliminar_complementarios(comp_ids=None, borrar_todo=False, lote_uuid=None):
     with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
         query = uow.session.query(ArticuloComplementario).filter(
             ArticuloComplementario.sector == "base",
             ArticuloComplementario.estado == "exportado",
+            ArticuloComplementario.lote_id == lote.id,
         )
         if not borrar_todo:
             ids = [int(i) for i in (comp_ids or []) if i is not None]
@@ -491,12 +532,14 @@ def eliminar_complementarios(comp_ids=None, borrar_todo=False):
         return deleted
 
 
-def exportar_complementarios(comp_ids=None):
+def exportar_complementarios(comp_ids=None, lote_uuid=None):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
         query = uow.session.query(ArticuloComplementario).filter(
             ArticuloComplementario.sector == "base",
             ArticuloComplementario.estado == "exportado",
+            ArticuloComplementario.lote_id == lote.id,
         )
         ids = [int(i) for i in (comp_ids or []) if i is not None]
         if ids:
