@@ -593,6 +593,15 @@ def _mensaje_archivo_no_generado(provider_key: str) -> str:
     )
 
 
+def _mensaje_archivo_no_generado_desde_resultado(provider_key: str, result) -> str:
+    if isinstance(result, dict):
+        for key in ("error_usuario", "error", "mensaje", "message"):
+            value = result.get(key)
+            if value:
+                return str(value)
+    return _mensaje_archivo_no_generado(provider_key)
+
+
 def _mensaje_error_procesador(provider_key: str, error: Exception) -> str:
     nombre = provider_key.replace("_", " ").title()
     detalle = str(error).strip()
@@ -665,7 +674,7 @@ def process_file(provider_id):
         if not result_output_path or not os.path.exists(result_output_path) or os.path.getsize(result_output_path) == 0:
             return jsonify({
                 "status": "error",
-                "error": _mensaje_archivo_no_generado(provider_key),
+                "error": _mensaje_archivo_no_generado_desde_resultado(provider_key, result),
             }), 422
 
         # Detectar si el resultado contiene datos de auditoría

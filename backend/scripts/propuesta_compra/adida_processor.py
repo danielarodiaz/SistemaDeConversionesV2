@@ -42,6 +42,30 @@ def parsear_fecha(fecha_str):
     print(f"⚠️ Formato inesperado en la fecha de entrega: {fecha_str}")
     return None
 
+
+def _valor_limpio(value):
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def _fecha_entrega_raw(row):
+    for columna in ('Requested Delivery Date', 'Requested On Shelf Date(s)'):
+        valor = _valor_limpio(row.get(columna, ""))
+        if valor and valor.lower() != "nan":
+            return columna, valor
+    return 'Requested Delivery Date', ""
+
+
+def _mensaje_fecha_no_reconocida(columna, valor, fila=None):
+    fila_txt = f" en la fila {fila}" if fila is not None else ""
+    return (
+        f"No se pudo generar la descarga porque la columna '{columna}' tiene una fecha "
+        f"con un formato que el procesador no reconoce{fila_txt}: '{valor}'. "
+        "Modificá esa fecha en el archivo o avisá a sistemas para agregar esta variante."
+    )
+
+
 def formatear_talle(talle):
     talle = str(talle).strip().upper()
     
@@ -74,8 +98,9 @@ def process_adidas_propuesta_compra(input_path, output_path):
             ],
         )
         transformed_data = []
+        errores_fechas = []
 
-        for _, row in data.iterrows():
+        for idx, row in data.iterrows():
             try:
                 referencia_interna = str(row.get('SAP Order number', '')).strip()
                 if not referencia_interna or referencia_interna.lower() == 'nan':
@@ -92,21 +117,19 @@ def process_adidas_propuesta_compra(input_path, output_path):
                 if cantidad <= 0:
                     continue
 
-                fecha_entrega_raw = str(
-                    row.get('Requested Delivery Date') 
-                    or row.get('Requested On Shelf Date(s)') 
-                    or ''
-                ).strip()
+                fecha_entrega_col, fecha_entrega_raw = _fecha_entrega_raw(row)
 
                 fecha_entrega = parsear_fecha(fecha_entrega_raw)
 
-                fecha_doc = str(row.get('Order creation date', '')).strip()
+                fecha_doc = _valor_limpio(row.get('Order creation date', ''))
                 fecha_doc_parseada = parsear_fecha(fecha_doc)
-                if not fecha_entrega or not fecha_doc_parseada:
-                    print(
-                        "⚠️ Fila omitida por fecha no reconocida. "
-                        f"Documento: {fecha_doc} | Entrega: {fecha_entrega_raw}"
-                    )
+                if not fecha_entrega:
+                    errores_fechas.append(_mensaje_fecha_no_reconocida(fecha_entrega_col, fecha_entrega_raw, idx + 6))
+                    print(f"⚠️ Fila omitida por fecha de entrega no reconocida: {fecha_entrega_raw}")
+                    continue
+                if not fecha_doc_parseada:
+                    errores_fechas.append(_mensaje_fecha_no_reconocida('Order creation date', fecha_doc, idx + 6))
+                    print(f"⚠️ Fila omitida por fecha de documento no reconocida: {fecha_doc}")
                     continue
 
                 ean = str(row.get('EAN', '')).strip()
@@ -160,6 +183,8 @@ def process_adidas_propuesta_compra(input_path, output_path):
 
         else:
             print("⚠️ No se generaron datos válidos para exportar.")
+            if errores_fechas:
+                raise RuntimeError(errores_fechas[0])
             raise RuntimeError(
                 "No se generaron filas válidas para importar. Revisá que el archivo tenga cantidades "
                 "mayores a cero y fechas de documento/entrega reconocibles."
