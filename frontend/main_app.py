@@ -1119,7 +1119,7 @@ def _render_abm_articulos() -> None:
     vidriera_sel = c14.selectbox("Desc. Exhibicion", [None] + vidrieras, index=_default_index(vidrieras, ["N/A"]), format_func=_label, key="abm_vidriera")
 
     c15, c16, c17, c18 = st.columns(4)
-    anio_sel = c15.selectbox("Desc. Anio", [None] + catalogos.get("anios", []), format_func=_label, key="abm_anio")
+    anio_sel = c15.selectbox("Desc. Año", [None] + catalogos.get("anios", []), format_func=_label, key="abm_anio")
     if st.session_state.get("abm_objetivo") not in ([None] + objetivos_filtrados):
         st.session_state.pop("abm_objetivo", None)
     objetivo_sel = c16.selectbox("Desc. Objetivo General", [None] + objetivos_filtrados, format_func=_label, key="abm_objetivo")
@@ -1136,7 +1136,7 @@ def _render_abm_articulos() -> None:
         st.session_state["abm_markup_source"] = markup_source
         st.session_state["abm_markup"] = float(markup_default or 0)
         st.session_state.pop("abm_precio_venta_source", None)
-    markup_valor = p2.number_input("Markups", min_value=0.0, step=0.01, format="%.4f", key="abm_markup")
+    markup_valor = p2.number_input("Markup", min_value=0.0, step=0.01, format="%.4f", key="abm_markup")
     precio_sugerido = round(precio_compra * markup_valor, 2) if markup_valor else 0.0
     precio_venta_default = _redondear_a_999(max(precio_sugerido, precio_compra + 1)) if precio_compra else 0
     precio_source = (float(precio_compra or 0), float(markup_valor or 0))
