@@ -1,5 +1,5 @@
 import os
-from functools import lru_cache
+import time
 
 from sqlalchemy import func, text
 
@@ -95,8 +95,12 @@ def _tipo_markup(tipo_codigo):
     return "resto"
 
 
-@lru_cache(maxsize=1)
 def obtener_catalogos():
+    now = time.time()
+    cache = getattr(obtener_catalogos, "_cache", None)
+    if cache and now - cache["ts"] < 60:
+        return cache["data"]
+
     with UnitOfWork() as uow:
         data = {}
         for nombre, (model, codigo_attr, descripcion_attr) in CATALOGOS.items():
@@ -160,7 +164,16 @@ def obtener_catalogos():
             for m in uow.session.query(markup).all()
         ]
 
+        obtener_catalogos._cache = {"ts": now, "data": data}
         return data
+
+
+def _clear_catalogos_cache():
+    if hasattr(obtener_catalogos, "_cache"):
+        delattr(obtener_catalogos, "_cache")
+
+
+obtener_catalogos.cache_clear = _clear_catalogos_cache
 
 
 def _get(dct, key, default=""):
