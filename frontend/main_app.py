@@ -1,10 +1,14 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 import os
+import base64
+import html
 import pandas as pd
 import logging
 import math
 import platform
+import re
 import sys
 import traceback
 import uuid
@@ -167,7 +171,7 @@ def _api_put(path: str, payload=None) -> dict:
     return res.json()
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _load_abm_catalogos() -> dict:
     return _api_get("/api/abm-articulos/catalogos")
 
@@ -250,6 +254,25 @@ def _abm_selected_id(item):
 def _clear_session_keys(*keys):
     for key in keys:
         st.session_state.pop(key, None)
+
+
+def _auto_download(content, filename, mime):
+    data = base64.b64encode(content).decode("ascii")
+    filename_safe = html.escape(filename or "download", quote=True)
+    mime_safe = html.escape(mime or "application/octet-stream", quote=True)
+    components.html(
+        f"""
+        <html>
+          <body>
+            <a id="download-link" download="{filename_safe}" href="data:{mime_safe};base64,{data}"></a>
+            <script>
+              document.getElementById("download-link").click();
+            </script>
+          </body>
+        </html>
+        """,
+        height=0,
+    )
 
 
 def _api_post_file(path: str, file, data=None) -> dict:
@@ -961,6 +984,14 @@ def _dedupe_talles(talles):
     return resultado
 
 
+def _talle_sort_key(talle):
+    valor = str(talle.get("valorTalle") or "").strip().replace(",", ".")
+    match = re.search(r"\d+(?:\.\d+)?", valor)
+    if match:
+        return (0, float(match.group()), valor)
+    return (1, valor.upper())
+
+
 @st.fragment
 def _render_abm_articulos() -> None:
     st.subheader("Alta de Articulos")
@@ -969,6 +1000,17 @@ def _render_abm_articulos() -> None:
     except Exception as e:
         st.error(f"No se pudieron cargar los catalogos: {e}")
         return
+
+    if st.session_state.pop("abm_limpiar_alta_basica", False):
+        _clear_session_keys(
+            "abm_codigo",
+            "abm_descripcion",
+            "abm_desc_talle",
+            "abm_desc_talle_actual",
+            "abm_talles_df",
+            "abm_talles_editor_widget",
+            "abm_codigos_pegados",
+        )
 
     tipos = catalogos.get("tipos_producto", [])
     talles = catalogos.get("talles", [])
@@ -1137,7 +1179,10 @@ def _render_abm_articulos() -> None:
     if st.session_state.get("abm_desc_talle_actual") != desc_talle_sel:
         st.session_state["abm_desc_talle_actual"] = desc_talle_sel
         st.session_state.pop("abm_talles_df", None)
-    talles_filtrados = _dedupe_talles([t for t in talles if t.get("descripcion") == desc_talle_sel])
+    talles_filtrados = sorted(
+        _dedupe_talles([t for t in talles if t.get("descripcion") == desc_talle_sel]),
+        key=_talle_sort_key,
+    )
 
     guardar_borrador_pressed = False
     if desc_talle_sel:
@@ -1145,7 +1190,7 @@ def _render_abm_articulos() -> None:
         for talle in talles_filtrados:
             rows.append({
                 "id": talle.get("id"),
-                "Seleccionar": True,
+                "Seleccionar": False,
                 "Descripcion": talle.get("descripcion", ""),
                 "Talle": talle.get("valorTalle", ""),
                 "Equiv": talle.get("descripcionValorTalle") or talle.get("valorTalle", ""),
@@ -1156,6 +1201,7 @@ def _render_abm_articulos() -> None:
             st.session_state["abm_talles_df"] = pd.DataFrame(rows)
 
         editor_source = st.session_state.get("abm_talles_df", pd.DataFrame(rows))
+        editor_display = editor_source.set_index("id", drop=True) if "id" in editor_source.columns else editor_source
         with st.form("abm_talles_form"):
             codigos_pegados = st.text_area(
                 "Pegar codigos de barra para talles seleccionados",
@@ -1164,7 +1210,7 @@ def _render_abm_articulos() -> None:
                 placeholder="Un codigo por linea. Se aplican solo a los talles seleccionados.",
             )
             ean_df = st.data_editor(
-                editor_source.drop(columns=["id"], errors="ignore"),
+                editor_display,
                 hide_index=True,
                 width="stretch",
                 disabled=["Descripcion", "Talle", "Equiv"],
@@ -1188,7 +1234,8 @@ def _render_abm_articulos() -> None:
                     key="abm_talles_save_draft_submit",
                 )
 
-        ean_df.insert(0, "id", editor_source["id"].values)
+        if "id" not in ean_df.columns:
+            ean_df = ean_df.reset_index()
         if toggle_talles:
             nuevo_valor = not bool(ean_df["Seleccionar"].fillna(False).all()) if not ean_df.empty else True
             ean_df["Seleccionar"] = nuevo_valor
@@ -1308,6 +1355,7 @@ def _render_abm_articulos() -> None:
                 }),
             )
             st.success(f"Borrador guardado: {result.get('created', 0)} fila(s).")
+            st.session_state["abm_limpiar_alta_basica"] = True
             _refresh_abm_listados()
             st.rerun()
         except Exception as e:
@@ -1325,34 +1373,36 @@ def _render_abm_articulos() -> None:
     if not borradores:
         st.info("No hay borradores pendientes.")
     else:
-        borradores_df = pd.DataFrame(borradores)
-        if "abm_borradores_df" not in st.session_state or set(st.session_state["abm_borradores_df"].get("id", [])) != set(borradores_df.get("id", [])):
-            borradores_df.insert(0, "Seleccionar", False)
-            st.session_state["abm_borradores_df"] = borradores_df
+        borradores_slot = st.empty()
+        with borradores_slot.container():
+            borradores_df = pd.DataFrame(borradores)
+            if "abm_borradores_df" not in st.session_state or set(st.session_state["abm_borradores_df"].get("id", [])) != set(borradores_df.get("id", [])):
+                borradores_df.insert(0, "Seleccionar", True)
+                st.session_state["abm_borradores_df"] = borradores_df
 
-        bb1 = st.columns([1, 3])[0]
-        if bb1.button("Seleccionar / deseleccionar", width="stretch", key="abm_borradores_toggle_btn"):
-            df_tmp = st.session_state["abm_borradores_df"].copy()
-            nuevo_valor = not bool(df_tmp["Seleccionar"].all()) if not df_tmp.empty else True
-            df_tmp["Seleccionar"] = nuevo_valor
-            st.session_state["abm_borradores_df"] = df_tmp
-            st.rerun()
+            bb1 = st.columns([1, 3])[0]
+            if bb1.button("Seleccionar / deseleccionar", width="stretch", key="abm_borradores_toggle_btn"):
+                df_tmp = st.session_state["abm_borradores_df"].copy()
+                nuevo_valor = not bool(df_tmp["Seleccionar"].all()) if not df_tmp.empty else True
+                df_tmp["Seleccionar"] = nuevo_valor
+                st.session_state["abm_borradores_df"] = df_tmp
+                st.rerun()
 
-        with st.form("abm_borradores_form"):
-            borradores_editor = st.data_editor(
-                st.session_state["abm_borradores_df"].drop(columns=["id"], errors="ignore"),
-                hide_index=True,
-                width="stretch",
-                disabled=[c for c in st.session_state["abm_borradores_df"].drop(columns=["id"], errors="ignore").columns if c != "Seleccionar"],
-                key="abm_borradores_editor_widget",
-            )
-            bb2, bb3 = st.columns([1, 2])
-            with bb2:
-                borrar_borradores = st.form_submit_button("Eliminar seleccionados", width="stretch", key="abm_borradores_delete_submit")
-            with bb3:
-                exportar_borradores = st.form_submit_button("Exportar borradores", type="primary", width="stretch", key="abm_borradores_export_submit")
-        borradores_editor.insert(1, "id", st.session_state["abm_borradores_df"]["id"].values)
-        ids_seleccionados = borradores_editor.loc[borradores_editor["Seleccionar"].fillna(False), "id"].tolist()
+            with st.form("abm_borradores_form"):
+                borradores_editor = st.data_editor(
+                    st.session_state["abm_borradores_df"].drop(columns=["id"], errors="ignore"),
+                    hide_index=True,
+                    width="stretch",
+                    disabled=[c for c in st.session_state["abm_borradores_df"].drop(columns=["id"], errors="ignore").columns if c != "Seleccionar"],
+                    key="abm_borradores_editor_widget",
+                )
+                bb2, bb3 = st.columns([1, 2])
+                with bb2:
+                    borrar_borradores = st.form_submit_button("Eliminar seleccionados", width="stretch", key="abm_borradores_delete_submit")
+                with bb3:
+                    exportar_borradores = st.form_submit_button("Exportar borradores", type="primary", width="stretch", key="abm_borradores_export_submit")
+            borradores_editor.insert(1, "id", st.session_state["abm_borradores_df"]["id"].values)
+            ids_seleccionados = borradores_editor.loc[borradores_editor["Seleccionar"].fillna(False), "id"].tolist()
 
         if borrar_borradores:
             if not ids_seleccionados:
@@ -1375,30 +1425,15 @@ def _render_abm_articulos() -> None:
                 data = _api_post("/api/abm-articulos/exportar", _with_abm_lote({"ids": ids_seleccionados}))
                 download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
                 if download_res.status_code == 200:
-                    st.session_state["abm_export_download"] = {
-                        "content": download_res.content,
-                        "filename": data["filename"],
-                        "message": f"Exportados {data.get('exported', 0)} articulo(s).",
-                    }
+                    _auto_download(download_res.content, data["filename"], "application/zip")
+                    st.success(f"Exportados {data.get('exported', 0)} articulo(s). La descarga ART/PV/PC se inicio automaticamente.")
                     _refresh_abm_listados()
-                    _clear_abm_form_state(preserve={"abm_lote_uuid", "abm_export_download", "abm_complementario_download"})
-                    st.rerun()
+                    _clear_abm_form_state(preserve={"abm_lote_uuid"})
+                    borradores_slot.empty()
                 else:
                     st.error("El ZIP se genero, pero no se pudo descargar.")
             except Exception as e:
                 st.error(f"No se pudo exportar: {e}")
-
-    export_download = st.session_state.get("abm_export_download")
-    if export_download:
-        st.success(export_download["message"])
-        st.download_button(
-            "Descargar ART/PCO/PVE",
-            data=export_download["content"],
-            file_name=export_download["filename"],
-            mime="application/zip",
-            width="stretch",
-            key="abm_download_art_zip_btn",
-        )
 
     st.divider()
     st.subheader("Listado complementario")
@@ -1413,49 +1448,51 @@ def _render_abm_articulos() -> None:
         st.info("No hay articulos complementarios pendientes de descarga.")
         return
 
-    comp_df = pd.DataFrame(complementarios)
-    if "abm_complementarios_df" not in st.session_state or set(st.session_state["abm_complementarios_df"].get("id", [])) != set(comp_df.get("id", [])):
-        comp_df.insert(0, "Seleccionar", False)
-        st.session_state["abm_complementarios_df"] = comp_df
+    complementarios_slot = st.empty()
+    with complementarios_slot.container():
+        comp_df = pd.DataFrame(complementarios)
+        if "abm_complementarios_df" not in st.session_state or set(st.session_state["abm_complementarios_df"].get("id", [])) != set(comp_df.get("id", [])):
+            comp_df.insert(0, "Seleccionar", True)
+            st.session_state["abm_complementarios_df"] = comp_df
 
-    cb1 = st.columns([1, 4])[0]
-    if cb1.button("Seleccionar / deseleccionar", width="stretch", key="abm_complementarios_toggle_btn"):
-        df_tmp = st.session_state["abm_complementarios_df"].copy()
-        nuevo_valor = not bool(df_tmp["Seleccionar"].all()) if not df_tmp.empty else True
-        df_tmp["Seleccionar"] = nuevo_valor
-        st.session_state["abm_complementarios_df"] = df_tmp
-        st.rerun()
+        cb1 = st.columns([1, 4])[0]
+        if cb1.button("Seleccionar / deseleccionar", width="stretch", key="abm_complementarios_toggle_btn"):
+            df_tmp = st.session_state["abm_complementarios_df"].copy()
+            nuevo_valor = not bool(df_tmp["Seleccionar"].all()) if not df_tmp.empty else True
+            df_tmp["Seleccionar"] = nuevo_valor
+            st.session_state["abm_complementarios_df"] = df_tmp
+            st.rerun()
 
-    editable_comp_cols = {
-        "Seleccionar",
-        "Edad",
-        "Material",
-        "Segmentacion Proveedor",
-        "Segmentacion Marathon",
-        "Vidriera",
-        "Año",
-        "Objetivo Gen",
-    }
-    with st.form("abm_complementarios_form"):
-        comp_editor = st.data_editor(
-            st.session_state["abm_complementarios_df"].drop(columns=["id"], errors="ignore"),
-            hide_index=True,
-            width="stretch",
-            disabled=[
-                c for c in st.session_state["abm_complementarios_df"].drop(columns=["id"], errors="ignore").columns
-                if c not in editable_comp_cols
-            ],
-            key="abm_complementarios_editor_widget",
-        )
-        cb2, cb3, cb4 = st.columns([1, 1, 2])
-        with cb2:
-            guardar_complementarios = st.form_submit_button("Guardar cambios", width="stretch", key="abm_complementarios_save_submit")
-        with cb3:
-            borrar_complementarios = st.form_submit_button("Borrar seleccionados", width="stretch", key="abm_complementarios_delete_submit")
-        with cb4:
-            exportar_complementarios = st.form_submit_button("Descargar complementario", type="primary", width="stretch", key="abm_complementarios_export_submit")
-    comp_editor.insert(1, "id", st.session_state["abm_complementarios_df"]["id"].values)
-    comp_ids_seleccionados = comp_editor.loc[comp_editor["Seleccionar"].fillna(False), "id"].tolist()
+        editable_comp_cols = {
+            "Seleccionar",
+            "Edad",
+            "Material",
+            "Segmentacion Proveedor",
+            "Segmentacion Marathon",
+            "Vidriera",
+            "Año",
+            "Objetivo Gen",
+        }
+        with st.form("abm_complementarios_form"):
+            comp_editor = st.data_editor(
+                st.session_state["abm_complementarios_df"].drop(columns=["id"], errors="ignore"),
+                hide_index=True,
+                width="stretch",
+                disabled=[
+                    c for c in st.session_state["abm_complementarios_df"].drop(columns=["id"], errors="ignore").columns
+                    if c not in editable_comp_cols
+                ],
+                key="abm_complementarios_editor_widget",
+            )
+            cb2, cb3, cb4 = st.columns([1, 1, 2])
+            with cb2:
+                guardar_complementarios = st.form_submit_button("Guardar cambios", width="stretch", key="abm_complementarios_save_submit")
+            with cb3:
+                borrar_complementarios = st.form_submit_button("Borrar seleccionados", width="stretch", key="abm_complementarios_delete_submit")
+            with cb4:
+                exportar_complementarios = st.form_submit_button("Descargar complementario", type="primary", width="stretch", key="abm_complementarios_export_submit")
+        comp_editor.insert(1, "id", st.session_state["abm_complementarios_df"]["id"].values)
+        comp_ids_seleccionados = comp_editor.loc[comp_editor["Seleccionar"].fillna(False), "id"].tolist()
 
     if guardar_complementarios:
         try:
@@ -1503,32 +1540,15 @@ def _render_abm_articulos() -> None:
             data = _api_post("/api/abm-articulos/complementarios/exportar", _with_abm_lote({"ids": comp_ids_seleccionados}))
             download_res = requests.get(data["download_url"], stream=True, headers=NGROK_HEADERS)
             if download_res.status_code == 200:
-                st.session_state["abm_complementario_download"] = {
-                    "content": download_res.content,
-                    "filename": data["filename"],
-                    "message": f"Complementarios exportados: {data.get('exported', 0)}. IDs CEGID encontrados correctamente.",
-                    "ids": comp_ids_seleccionados,
-                }
-                _refresh_abm_listados()
-                st.rerun()
+                _auto_download(download_res.content, data["filename"], "text/csv")
+                st.success(f"Complementarios exportados: {data.get('exported', 0)}. IDs CEGID encontrados correctamente. La descarga se inicio automaticamente.")
+                _finalizar_descarga_complementario(comp_ids_seleccionados)
+                complementarios_slot.empty()
             else:
                 st.error("El complementario se genero, pero no se pudo descargar.")
         except Exception as e:
             st.error(f"No se pudo exportar complementario: {e}")
 
-    comp_download = st.session_state.get("abm_complementario_download")
-    if comp_download:
-        st.success(comp_download["message"])
-        st.download_button(
-            "Descargar archivo complementario",
-            data=comp_download["content"],
-            file_name=comp_download["filename"],
-            mime="text/csv",
-            width="stretch",
-            on_click=_finalizar_descarga_complementario,
-            args=(comp_download.get("ids", []),),
-            key="abm_download_complementario_btn",
-        )
     cleanup_error = st.session_state.pop("abm_complementario_cleanup_error", None)
     if cleanup_error:
         st.warning(f"El archivo se descargo, pero no se pudo limpiar el listado complementario: {cleanup_error}")
@@ -1621,7 +1641,7 @@ def _render_config_listado(modulo, items):
             acciones_col = cols[5]
         else:
             cols[0].write(item.get("codigo", ""))
-            cols[1].write(item.get("descripcion", ""))
+            cols[1].write(item.get("codigoMarca", "") if modulo == "proveedor-marca" else item.get("descripcion", ""))
             acciones_col = cols[2]
 
         b1, b2 = acciones_col.columns(2)
