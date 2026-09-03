@@ -281,6 +281,8 @@ class markup(Base):
     marca_id = Column(Integer, ForeignKey('marcas.id'), nullable=False)
     tipoProducto = Column(String(50), index=True) #calzado, todo, indumentaria, accesorios,etc
     markup = Column(Numeric(18, 4), default=0)
+
+    marca = relationship("marca")
     
 class material(Base):
     __tablename__ = 'materiales'
