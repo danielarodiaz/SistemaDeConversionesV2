@@ -1,11 +1,11 @@
 from sqlalchemy import func
 
-from backend.models import Proveedor, ProveedorMarca, marca, objetivoGeneral
+from backend.models import Proveedor, ProveedorMarca, marca, markup, objetivoGeneral
 from backend.services.unit_of_work import UnitOfWork
 from backend.scripts.abm_articulos.service import obtener_catalogos
 
 
-MODULOS = {"proveedores", "marcas", "proveedor-marca", "objetivos"}
+MODULOS = {"proveedores", "marcas", "proveedor-marca", "objetivos", "markups"}
 
 
 def _limpiar(valor):
@@ -57,6 +57,19 @@ def _serializar_objetivo(row):
         "id": row.id,
         "codigo": row.codigoObjetivoGeneral or "",
         "descripcion": row.descripcionObjetivoGeneral or "",
+    }
+
+
+def _serializar_markup(row):
+    marca_obj = getattr(row, "marca", None)
+    return {
+        "id": row.id,
+        "codigo": marca_obj.codigoMarca if marca_obj else "",
+        "descripcion": float(row.markup or 0),
+        "codigoMarca": marca_obj.codigoMarca if marca_obj else "",
+        "marca": marca_obj.descripcionMarca if marca_obj else "",
+        "markup": float(row.markup or 0),
+        "tipoProducto": row.tipoProducto or "",
     }
 
 
@@ -126,6 +139,15 @@ def listar_config(modulo):
         if modulo == "objetivos":
             rows = uow.session.query(objetivoGeneral).order_by(objetivoGeneral.codigoObjetivoGeneral).all()
             return [_serializar_objetivo(row) for row in rows]
+        if modulo == "markups":
+            rows = (
+                uow.session.query(markup)
+                .join(marca, marca.id == markup.marca_id)
+                .filter(func.upper(func.ltrim(func.rtrim(func.coalesce(markup.tipoProducto, "")))) == "TODO")
+                .order_by(marca.codigoMarca)
+                .all()
+            )
+            return [_serializar_markup(row) for row in rows]
 
         rows = (
             uow.session.query(ProveedorMarca)
@@ -189,6 +211,33 @@ def crear_config(modulo, payload):
             uow.session.flush()
             _clear_catalogos()
             return _serializar_objetivo(row)
+
+        if modulo == "markups":
+            codigo_marca = _normalizar(payload.get("codigoMarca") or payload.get("codigo"))
+            valor_markup = payload.get("markup", payload.get("descripcion"))
+            if not codigo_marca:
+                raise ValueError("El codigo de marca es obligatorio.")
+            try:
+                valor_markup = float(valor_markup)
+            except (TypeError, ValueError):
+                raise ValueError("El markup debe ser numerico.")
+            marca_obj = uow.session.query(marca).filter(marca.codigoMarca == codigo_marca).first()
+            if not marca_obj:
+                raise ValueError("Marca no encontrada.")
+            if (
+                uow.session.query(markup)
+                .filter(
+                    markup.marca_id == marca_obj.id,
+                    func.upper(func.ltrim(func.rtrim(func.coalesce(markup.tipoProducto, "")))) == "TODO",
+                )
+                .first()
+            ):
+                raise ValueError("Ya existe un markup para esa marca.")
+            row = markup(marca_id=marca_obj.id, tipoProducto="todo", markup=valor_markup)
+            uow.session.add(row)
+            uow.session.flush()
+            _clear_catalogos()
+            return _serializar_markup(row)
 
         cod_prov = _normalizar(payload.get("cod_prov") or payload.get("codigoProveedor"))
         codigo_marca = _normalizar(payload.get("codigoMarca") or payload.get("cod_marca"))
@@ -274,6 +323,37 @@ def actualizar_config(modulo, item_id, payload):
             _clear_catalogos()
             return _serializar_objetivo(row)
 
+        if modulo == "markups":
+            row = uow.session.get(markup, int(item_id))
+            if not row:
+                return None
+            codigo_marca = _normalizar(payload.get("codigoMarca") or payload.get("codigo") or row.marca.codigoMarca)
+            valor_markup = payload.get("markup", payload.get("descripcion", row.markup))
+            try:
+                valor_markup = float(valor_markup)
+            except (TypeError, ValueError):
+                raise ValueError("El markup debe ser numerico.")
+            marca_obj = uow.session.query(marca).filter(marca.codigoMarca == codigo_marca).first()
+            if not marca_obj:
+                raise ValueError("Marca no encontrada.")
+            duplicado = (
+                uow.session.query(markup)
+                .filter(
+                    markup.marca_id == marca_obj.id,
+                    func.upper(func.ltrim(func.rtrim(func.coalesce(markup.tipoProducto, "")))) == "TODO",
+                    markup.id != row.id,
+                )
+                .first()
+            )
+            if duplicado:
+                raise ValueError("Ya existe otro markup para esa marca.")
+            row.marca_id = marca_obj.id
+            row.tipoProducto = "todo"
+            row.markup = valor_markup
+            uow.session.flush()
+            _clear_catalogos()
+            return _serializar_markup(row)
+
         row = uow.session.get(ProveedorMarca, int(item_id))
         if not row:
             return None
@@ -315,6 +395,8 @@ def eliminar_config(modulo, item_id):
             row = uow.session.get(marca, int(item_id))
         elif modulo == "proveedor-marca":
             row = uow.session.get(ProveedorMarca, int(item_id))
+        elif modulo == "markups":
+            row = uow.session.get(markup, int(item_id))
         else:
             row = uow.session.get(objetivoGeneral, int(item_id))
         if not row:

@@ -943,6 +943,12 @@ def _markup_para(marca_sel, tipo_sel, markups):
     return float((elegido or {}).get("markup") or 0)
 
 
+def _redondear_a_999(valor):
+    if not valor:
+        return 0
+    return int(math.ceil((float(valor) + 1) / 1000) * 1000 - 1)
+
+
 def _siluetas_para_tipo(tipo_sel, siluetas):
     return filtrar_siluetas(tipo_sel, siluetas)
 
@@ -1002,14 +1008,14 @@ def _render_abm_articulos() -> None:
         return
 
     if st.session_state.pop("abm_limpiar_alta_basica", False):
+        st.session_state["abm_codigo"] = ""
+        st.session_state["abm_descripcion"] = ""
+        st.session_state["abm_desc_talle"] = ""
+        st.session_state["abm_codigos_pegados"] = ""
         _clear_session_keys(
-            "abm_codigo",
-            "abm_descripcion",
-            "abm_desc_talle",
             "abm_desc_talle_actual",
             "abm_talles_df",
             "abm_talles_editor_widget",
-            "abm_codigos_pegados",
         )
 
     tipos = catalogos.get("tipos_producto", [])
@@ -1042,6 +1048,7 @@ def _render_abm_articulos() -> None:
             "abm_desc_talle",
             "abm_desc_talle_actual",
             "abm_talles_df",
+            "abm_markup_source",
         )
     proveedor_sel = c4.selectbox("Proveedor Habitual", [None] + catalogos.get("proveedores", []), format_func=_label_codigo, key="abm_proveedor")
     proveedor_actual = _abm_selected_id(proveedor_sel)
@@ -1057,7 +1064,7 @@ def _render_abm_articulos() -> None:
     marca_actual = _abm_selected_id(marca_sel)
     if st.session_state.get("abm_marca_actual") != marca_actual:
         st.session_state["abm_marca_actual"] = marca_actual
-        _clear_session_keys("abm_desc_talle", "abm_desc_talle_actual", "abm_talles_df")
+        _clear_session_keys("abm_desc_talle", "abm_desc_talle_actual", "abm_talles_df", "abm_markup_source")
     if proveedor_sel and not marcas_filtradas:
         st.caption("Este proveedor no tiene marcas relacionadas cargadas.")
 
@@ -1121,20 +1128,29 @@ def _render_abm_articulos() -> None:
     valor_color_sel = c17.selectbox("Desc. Color", [None] + valores_color, format_func=lambda item: "" if not item else item.get("descripcionValor", ""), key="abm_valor_color")
     c18.text_input("Desc. Color Talle", value=(color_talle or {}).get("descripcion", ""), disabled=True)
 
-    precio_compra = st.number_input("Precio compra", min_value=0.0, step=0.01, format="%.2f", key="abm_precio_compra")
-    markup_valor = _markup_para(marca_sel, tipo_sel, catalogos.get("markups", []))
+    p1, p2, p3 = st.columns(3)
+    precio_compra = p1.number_input("Precio compra", min_value=0.0, step=0.01, format="%.2f", key="abm_precio_compra")
+    markup_default = _markup_para(marca_sel, tipo_sel, catalogos.get("markups", []))
+    markup_source = (marca_actual, tipo_actual)
+    if st.session_state.get("abm_markup_source") != markup_source:
+        st.session_state["abm_markup_source"] = markup_source
+        st.session_state["abm_markup"] = float(markup_default or 0)
+        st.session_state.pop("abm_precio_venta_source", None)
+    markup_valor = p2.number_input("Markups", min_value=0.0, step=0.01, format="%.4f", key="abm_markup")
     precio_sugerido = round(precio_compra * markup_valor, 2) if markup_valor else 0.0
-    precio_venta_default = math.ceil(max(precio_sugerido, precio_compra + 1)) if precio_compra else 0
-    precio_venta = st.number_input(
+    precio_venta_default = _redondear_a_999(max(precio_sugerido, precio_compra + 1)) if precio_compra else 0
+    precio_source = (float(precio_compra or 0), float(markup_valor or 0))
+    if st.session_state.get("abm_precio_venta_source") != precio_source:
+        st.session_state["abm_precio_venta_source"] = precio_source
+        st.session_state["abm_precio_venta"] = int(precio_venta_default)
+    precio_venta = p3.number_input(
         "Precio venta",
         min_value=0,
-        value=int(precio_venta_default),
         step=1,
         format="%d",
         key="abm_precio_venta",
     )
-    if markup_valor:
-        st.caption(f"Markup aplicado: {markup_valor:.4f}. Precio sugerido: {math.ceil(precio_sugerido):d}.")
+    st.caption(f"Precio sugerido: {precio_sugerido:.2f}. Precio venta redondeado a 999: {precio_venta_default}.")
     if precio_compra and precio_venta <= precio_compra:
         st.warning("El precio de venta debe ser mayor al precio de compra.")
 
@@ -1614,6 +1630,11 @@ CONFIG_ABM_MODULOS = {
         "codigo_label": "Cod. Objetivo Grupo",
         "descripcion_label": "Desc. Objetivo Grupo",
     },
+    "markups": {
+        "titulo": "Alta de Markups",
+        "codigo_label": "Cod. Marca",
+        "descripcion_label": "Markup",
+    },
 }
 
 
@@ -1641,7 +1662,12 @@ def _render_config_listado(modulo, items):
             acciones_col = cols[5]
         else:
             cols[0].write(item.get("codigo", ""))
-            cols[1].write(item.get("codigoMarca", "") if modulo == "proveedor-marca" else item.get("descripcion", ""))
+            if modulo == "proveedor-marca":
+                cols[1].write(item.get("codigoMarca", ""))
+            elif modulo == "markups":
+                cols[1].write(item.get("markup", ""))
+            else:
+                cols[1].write(item.get("descripcion", ""))
             acciones_col = cols[2]
 
         b1, b2 = acciones_col.columns(2)
@@ -1657,6 +1683,7 @@ def _mensaje_config(modulo, accion):
         "marcas": "marca",
         "proveedor-marca": "relacion proveedor-marca",
         "objetivos": "objetivo general",
+        "markups": "markup",
     }
     nombre = nombres.get(modulo, "registro")
     if accion == "crear":
@@ -1704,6 +1731,8 @@ def _payload_config_proveedor(cuit, cod_prov, razon_social, marca_txt, pivot):
 def _payload_config_simple(modulo, codigo, descripcion):
     if modulo == "proveedor-marca":
         return {"cod_prov": codigo, "codigoMarca": descripcion}
+    if modulo == "markups":
+        return {"codigoMarca": codigo, "markup": descripcion}
     return {"codigo": codigo, "descripcion": descripcion}
 
 
@@ -1781,10 +1810,18 @@ def _render_config_update_body(modulo, item):
 
     else:
         meta = CONFIG_ABM_MODULOS[modulo]
-        descripcion_default = item.get("codigoMarca", "") if modulo == "proveedor-marca" else item.get("descripcion", "")
+        if modulo == "proveedor-marca":
+            descripcion_default = item.get("codigoMarca", "")
+        elif modulo == "markups":
+            descripcion_default = float(item.get("markup") or 0)
+        else:
+            descripcion_default = item.get("descripcion", "")
         with st.form(f"abm_config_{modulo}_modal_form_{item['id']}"):
             codigo = st.text_input(meta["codigo_label"], value=item.get("codigo", ""), key=f"abm_config_{modulo}_modal_codigo_{item['id']}")
-            descripcion = st.text_input(meta["descripcion_label"], value=descripcion_default, key=f"abm_config_{modulo}_modal_descripcion_{item['id']}")
+            if modulo == "markups":
+                descripcion = st.number_input(meta["descripcion_label"], min_value=0.0, value=descripcion_default, step=0.01, format="%.4f", key=f"abm_config_{modulo}_modal_descripcion_{item['id']}")
+            else:
+                descripcion = st.text_input(meta["descripcion_label"], value=descripcion_default, key=f"abm_config_{modulo}_modal_descripcion_{item['id']}")
             guardar = st.form_submit_button("Guardar cambios", type="primary", width="stretch")
         if guardar:
             st.session_state[f"abm_config_{modulo}_dialog"] = {"accion": "modificar", "item": item}
@@ -1848,7 +1885,10 @@ def _render_config_simple(modulo):
     with st.form(f"abm_config_{modulo}_form_{version}"):
         c1, c2 = st.columns(2)
         codigo = c1.text_input(meta["codigo_label"], key=f"abm_config_{modulo}_codigo_{version}")
-        descripcion = c2.text_input(meta["descripcion_label"], key=f"abm_config_{modulo}_descripcion_{version}")
+        if modulo == "markups":
+            descripcion = c2.number_input(meta["descripcion_label"], min_value=0.0, step=0.01, format="%.4f", key=f"abm_config_{modulo}_descripcion_{version}")
+        else:
+            descripcion = c2.text_input(meta["descripcion_label"], key=f"abm_config_{modulo}_descripcion_{version}")
         guardar = st.form_submit_button("Crear registro", type="primary")
     if guardar:
         try:
