@@ -1124,7 +1124,7 @@ def _render_abm_articulos() -> None:
         st.session_state.pop("abm_objetivo", None)
     objetivo_sel = c16.selectbox("Desc. Objetivo General", [None] + objetivos_filtrados, format_func=_label, key="abm_objetivo")
     color_talle = _color_talle_para_tipo((tipo_sel or {}).get("codigo"), colores)
-    valores_color = [c for c in colores if not color_talle or c.get("codigo") == color_talle.get("codigo")]
+    valores_color = colores
     valor_color_sel = c17.selectbox("Desc. Color", [None] + valores_color, format_func=lambda item: "" if not item else item.get("descripcionValor", ""), key="abm_valor_color")
     c18.text_input("Desc. Color Talle", value=(color_talle or {}).get("descripcion", ""), disabled=True)
 
