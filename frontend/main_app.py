@@ -1903,7 +1903,7 @@ def _render_config_simple(modulo):
 
 
 def _render_config_abm_articulos():
-    st.subheader("Configuracion ABM Articulos")
+    st.subheader("ABM Campos de Articulos")
     tabs = st.tabs([meta["titulo"] for meta in CONFIG_ABM_MODULOS.values()])
     for tab, modulo in zip(tabs, CONFIG_ABM_MODULOS):
         with tab:
@@ -1931,16 +1931,16 @@ def _render_app() -> None:
         st.divider()
         menu = st.radio(
             "Secciones",
-            ["Pedido Proveedor", "Propuesta de Compra", "Procesos Especiales", "ABM Articulos", "Config. ABM Articulos", "Auditoria Logistica"],
+            ["Pedido Proveedor", "Propuesta de Compra", "Procesos Especiales", "Articulos", "Config. Articulos", "Auditoria Logistica"],
         )
 
     st.title(f"📂 {menu}")
 
     if menu == "Auditoria Logistica":
         _render_auditoria_logistica()
-    elif menu == "ABM Articulos":
+    elif menu == "Articulos":
         _render_abm_articulos()
-    elif menu == "Config. ABM Articulos":
+    elif menu == "Config. Articulos":
         _render_config_abm_articulos()
     else:
         if menu == "Procesos Especiales":
