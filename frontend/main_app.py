@@ -919,6 +919,15 @@ def _finalizar_descarga_complementario(comp_ids):
         _reset_abm_lote_uuid()
 
 
+def _tipo_codigo_operativo(tipo_codigo):
+    tipo = (tipo_codigo or "").upper()
+    if tipo == "CLU":
+        return "IND"
+    if tipo == "VER":
+        return "CAL"
+    return tipo
+
+
 def _color_talle_para_tipo(tipo_codigo, colores):
     mapping = {
         "ACC": "C01",
@@ -927,13 +936,13 @@ def _color_talle_para_tipo(tipo_codigo, colores):
         "MED": "C04",
         "BIC": "C05",
     }
-    codigo_color = mapping.get((tipo_codigo or "").upper(), "C06")
+    codigo_color = mapping.get(_tipo_codigo_operativo(tipo_codigo), "C06")
     return next((c for c in colores if c.get("codigo") == codigo_color), None)
 
 
 def _markup_para(marca_sel, tipo_sel, markups):
     marca_id = (marca_sel or {}).get("id")
-    tipo_codigo = ((tipo_sel or {}).get("codigo") or "").lower()
+    tipo_codigo = _tipo_codigo_operativo((tipo_sel or {}).get("codigo")).lower()
     tipo_markup = "cal" if tipo_codigo == "cal" else "ind" if tipo_codigo == "ind" else "resto"
     candidatos = [m for m in markups if m.get("marca_id") == marca_id]
     exacto = next((m for m in candidatos if m.get("tipo") == tipo_markup), None)
@@ -941,6 +950,20 @@ def _markup_para(marca_sel, tipo_sel, markups):
     resto = next((m for m in candidatos if m.get("tipo") == "resto"), None)
     elegido = exacto or todo or resto
     return float((elegido or {}).get("markup") or 0)
+
+
+def _sap_para_tipo(tipo_sel, sap_items):
+    tipo_codigo = _tipo_codigo_operativo((tipo_sel or {}).get("codigo"))
+    if not tipo_codigo:
+        return {}
+    return next(
+        (
+            s for s in sap_items
+            if str(s.get("descripcion") or "").strip().upper() == tipo_codigo
+            or str(s.get("codigo") or "").strip().upper() == tipo_codigo
+        ),
+        {},
+    )
 
 
 def _redondear_a_999(valor):
@@ -1124,7 +1147,7 @@ def _render_abm_articulos() -> None:
         st.session_state.pop("abm_objetivo", None)
     objetivo_sel = c16.selectbox("Desc. Objetivo General", [None] + objetivos_filtrados, format_func=_label, key="abm_objetivo")
     color_talle = _color_talle_para_tipo((tipo_sel or {}).get("codigo"), colores)
-    valores_color = colores
+    valores_color = [c for c in colores if not color_talle or c.get("codigo") == color_talle.get("codigo")]
     valor_color_sel = c17.selectbox("Desc. Color", [None] + valores_color, format_func=lambda item: "" if not item else item.get("descripcionValor", ""), key="abm_valor_color")
     c18.text_input("Desc. Color Talle", value=(color_talle or {}).get("descripcion", ""), disabled=True)
 
@@ -1320,10 +1343,7 @@ def _render_abm_articulos() -> None:
             return
 
         canal_default = next((c for c in catalogos.get("canales", []) if c.get("codigo") == "C0"), None) or (catalogos.get("canales") or [{}])[0]
-        sap_default = next(
-            (s for s in catalogos.get("sap", []) if s.get("descripcion") == (tipo_sel or {}).get("codigo")),
-            None,
-        ) or (catalogos.get("sap") or [{}])[0]
+        sap_default = _sap_para_tipo(tipo_sel, catalogos.get("sap", []))
         color_data = color_talle or {}
         valor_color_data = valor_color_sel or {}
         base = {
