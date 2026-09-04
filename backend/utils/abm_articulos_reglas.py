@@ -267,6 +267,16 @@ def _filtrar_talles_accesorios(base, marca):
     ]
 
 
+def _filtrar_talles_generales_calzado(items, genero_sel):
+    genero = descripcion_catalogo(genero_sel)
+    if genero != "UNISEX":
+        return _filtrar_talles_por_genero(items, genero_sel)
+    return [
+        item for item in items
+        if "MUJER" not in _tokens_descripcion(item)
+    ]
+
+
 def filtrar_descripciones_talle(tipo_sel, edad_sel, genero_sel, marca_sel, talles):
     texto_tipo = tipo_texto_talle(tipo_sel)
     talle_unico = [
@@ -317,7 +327,7 @@ def filtrar_descripciones_talle(tipo_sel, edad_sel, genero_sel, marca_sel, talle
         talle for talle in candidatos
         if "GENERAL" in _tokens_descripcion(talle)
     ]
-    generales = _filtrar_talles_por_genero(generales, genero_sel)
+    generales = _filtrar_talles_generales_calzado(generales, genero_sel)
     if generales:
         return dedupe_descripciones(inicial + generales)
 
