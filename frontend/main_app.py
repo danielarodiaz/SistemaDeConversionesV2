@@ -15,13 +15,29 @@ import uuid
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-from shared.abm_articulos_reglas import (
-    filtrar_descripciones_talle,
-    filtrar_edades,
-    filtrar_objetivos,
-    filtrar_siluetas,
-    valor_sugerido,
-)
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+try:
+    from shared.abm_articulos_reglas import (
+        filtrar_descripciones_talle,
+        filtrar_edades,
+        filtrar_objetivos,
+        filtrar_siluetas,
+        valor_sugerido,
+    )
+except ModuleNotFoundError:
+    FRONTEND_DIR = os.path.abspath(os.path.dirname(__file__))
+    if FRONTEND_DIR not in sys.path:
+        sys.path.insert(0, FRONTEND_DIR)
+    from abm_articulos_reglas import (
+        filtrar_descripciones_talle,
+        filtrar_edades,
+        filtrar_objetivos,
+        filtrar_siluetas,
+        valor_sugerido,
+    )
 
 # Carga variables de entorno desde .env si existe
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -967,8 +983,8 @@ def _edades_para_tipo_genero(tipo_sel, genero_sel, edades):
     return filtrar_edades(tipo_sel, genero_sel, edades)
 
 
-def _objetivos_para_reglas(tipo_sel, silueta_sel, uso_sel, objetivos):
-    return filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos)
+def _objetivos_para_reglas(tipo_sel, silueta_sel, uso_sel, edad_sel, objetivos):
+    return filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=edad_sel)
 
 
 def _descripciones_talle_para_reglas(tipo_sel, edad_sel, genero_sel, marca_sel, talles):
@@ -1101,7 +1117,7 @@ def _render_abm_articulos() -> None:
     silueta_sel = c8a.selectbox("Desc. Silueta", [None] + siluetas_filtradas, format_func=_label, key="abm_silueta")
     uso_sel = c8b.selectbox("Desc. Uso", [None] + catalogos.get("usos", []), format_func=_label, key="abm_uso")
     capsula_sel = c8c.selectbox("Desc. Capsula", [None] + capsulas, index=_default_index(capsulas, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_capsula")
-    objetivos_filtrados = _objetivos_para_reglas(tipo_sel, silueta_sel, uso_sel, catalogos.get("objetivos", []))
+    objetivos_filtrados = _objetivos_para_reglas(tipo_sel, silueta_sel, uso_sel, edad_sel, catalogos.get("objetivos", []))
 
     c9, c10, c11 = st.columns(3)
     division_sel = c9.selectbox(

@@ -225,11 +225,12 @@ def _terminos_silueta_acc(silueta_sel):
 
 def _objetivo_contiene_termino(objetivo, termino):
     descripcion = _normalizar(descripcion_catalogo(objetivo))
-    if not termino:
+    termino_norm = _limpiar_espacios(_normalizar(termino))
+    if not termino_norm:
         return False
-    if " " in termino:
-        return termino in descripcion
-    return termino in _tokens_texto(descripcion)
+    if " " in termino_norm:
+        return termino_norm in descripcion
+    return termino_norm in _tokens_texto(descripcion)
 
 
 def _filtrar_objetivos_por_silueta_acc(objetivos, silueta_sel):
@@ -302,7 +303,83 @@ def _filtrar_objetivos_pelota_acc(objetivos, uso_sel):
     return exactos or generales or objetivos
 
 
-def filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos):
+def _edad_objetivo_cal(edad_sel):
+    edad = descripcion_catalogo(edad_sel)
+    if "NIÑO" in edad or "NINO" in edad or "BEBE" in edad:
+        return "NIÑO"
+    if "ADULTO" in edad:
+        return "ADULTO"
+    return ""
+
+
+def _filtrar_objetivos_por_edad_cal(objetivos, edad_sel):
+    edad = _edad_objetivo_cal(edad_sel)
+    if not edad:
+        return objetivos
+    filtrados = [
+        objetivo for objetivo in objetivos
+        if _objetivo_contiene_termino(objetivo, edad)
+    ]
+    return filtrados or objetivos
+
+
+def _terminos_uso_cal(uso_sel):
+    uso = _limpiar_espacios(_normalizar(descripcion_catalogo(uso_sel)))
+    return {
+        "BASQUET": {"BASQUET"},
+        "CICLISMO": {"CICLISMO"},
+        "FUTBOL 11": {"FUTB CAMPO", "FUTB SALON", "FUTB TURF"},
+        "FUTBOL GENERAL": {"FUTB CAMPO", "FUTB SALON", "FUTB TURF"},
+        "FUTBOL 5": {"FUTB CAMPO", "FUTB SALON", "FUTB TURF"},
+        "FUTSAL": {"FUTB SALON"},
+        "GOLF": {"GOLF"},
+        "HOCKEY": {"HOCKEY"},
+        "LIFESTYLE": {"MODA"},
+        "MODA": {"MODA"},
+        "RUGBY": {"RUGBY"},
+        "RUNNING": {"RUNN"},
+        "TRAIL": {"TRAIL"},
+        "TRAINING": {"TRAIN"},
+        "TENIS": {"TENIS"},
+        "PADEL": {"TENIS"},
+        "OUTDOOR": {"TRAIL"},
+    }.get(uso, set())
+
+
+def _es_tipo_verano(tipo_sel):
+    return _es_tipo(tipo_sel, "VER", "VERANO")
+
+
+def _silueta_prioriza_verano(silueta_sel):
+    silueta = descripcion_catalogo(silueta_sel)
+    return silueta in {"OJOTAS", "SANDALIA"}
+
+
+def _filtrar_objetivos_por_terminos(objetivos, terminos):
+    if not terminos:
+        return objetivos
+    filtrados = _objetivos_con_terminos(objetivos, terminos)
+    return filtrados or objetivos
+
+
+def _objetivos_con_terminos(objetivos, terminos):
+    return [
+        objetivo for objetivo in objetivos
+        if any(_objetivo_contiene_termino(objetivo, termino) for termino in terminos)
+    ]
+
+
+def _filtrar_objetivos_cal(tipo_sel, silueta_sel, uso_sel, edad_sel, objetivos):
+    por_edad = _filtrar_objetivos_por_edad_cal(objetivos, edad_sel)
+    if _es_tipo_verano(tipo_sel) or _silueta_prioriza_verano(silueta_sel):
+        verano = _objetivos_con_terminos(por_edad, {"VERA"})
+        return verano or por_edad
+
+    por_uso = _objetivos_con_terminos(por_edad, _terminos_uso_cal(uso_sel))
+    return por_uso or por_edad
+
+
+def filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=None):
     prefijo = tipo_prefijo(tipo_sel)
     if prefijo:
         por_tipo = [
@@ -317,6 +394,9 @@ def filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos):
             if "N/A" in f"{codigo_catalogo(objetivo)} {descripcion_catalogo(objetivo)}"
         ]
         return por_tipo or objetivos[:1]
+
+    if prefijo == "CAL":
+        return _filtrar_objetivos_cal(tipo_sel, silueta_sel, uso_sel, edad_sel, por_tipo)
 
     if prefijo != "ACC":
         return por_tipo
