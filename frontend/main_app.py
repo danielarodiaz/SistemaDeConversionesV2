@@ -984,7 +984,12 @@ def _edades_para_tipo_genero(tipo_sel, genero_sel, edades):
 
 
 def _objetivos_para_reglas(tipo_sel, silueta_sel, uso_sel, edad_sel, objetivos):
-    return filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=edad_sel)
+    try:
+        return filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=edad_sel)
+    except TypeError as exc:
+        if "edad_sel" not in str(exc):
+            raise
+        return filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos)
 
 
 def _descripciones_talle_para_reglas(tipo_sel, edad_sel, genero_sel, marca_sel, talles):
