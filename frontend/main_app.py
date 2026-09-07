@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-from abm_articulos_reglas import (
+from shared.abm_articulos_reglas import (
     filtrar_descripciones_talle,
     filtrar_edades,
     filtrar_objetivos,
