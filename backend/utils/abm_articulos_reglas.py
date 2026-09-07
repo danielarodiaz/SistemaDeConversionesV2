@@ -86,6 +86,11 @@ def _coincide_opcion(texto, opcion):
     return opcion_norm in set(texto_norm.split())
 
 
+def _tokens_texto(texto):
+    texto_norm = _normalizar(texto).replace("/", " ")
+    return set(_limpiar_espacios(texto_norm).split())
+
+
 def _es_tipo(tipo_sel, *valores):
     texto = texto_catalogo(tipo_sel)
     return _contiene(texto, valores)
@@ -166,6 +171,161 @@ def valor_sugerido(genero_sel, edad_sel, valores_genero):
     if not valor:
         return None
     return next((item for item in valores_genero if descripcion_catalogo(item) == valor), None)
+
+
+def _variantes_basicas(texto):
+    limpio = _limpiar_espacios(_normalizar(texto))
+    if not limpio:
+        return set()
+
+    variantes = {limpio}
+    palabras = limpio.split()
+    if len(palabras) == 1:
+        palabra = palabras[0]
+        if palabra.endswith("Z"):
+            variantes.add(f"{palabra[:-1]}CES")
+        elif palabra.endswith(("A", "E", "I", "O", "U")):
+            variantes.add(f"{palabra}S")
+        elif not palabra.endswith("S"):
+            variantes.add(f"{palabra}ES")
+        if palabra.endswith("ES"):
+            variantes.add(palabra[:-2])
+        if palabra.endswith("S"):
+            variantes.add(palabra[:-1])
+    return {v for v in variantes if v}
+
+
+def _terminos_silueta_acc(silueta_sel):
+    silueta = descripcion_catalogo(silueta_sel)
+    alias = {
+        "ANTIPARRA": {"ANTIPARRA", "ANTIPARRAS"},
+        "CANILLERA": {"CANILLERA", "CANILLERAS"},
+        "CONO": {"CONO", "TORTUGA", "TORTUGA CONO"},
+        "GORRA": {"GORRA", "GORRAS"},
+        "GORRO": {"GORRO", "GORRO NAT"},
+        "GRIP": {"GRIP", "CUBRE GRIP"},
+        "GUANTE": {"GUANTE", "GUANTES", "GUANTES ARQ", "GUANTES OTROS"},
+        "JIBBIT": {"JIBBIT", "JIBBITZ"},
+        "MAT YOGA": {"MAT YOGA", "YOGA", "COLCHONETA"},
+        "MOCHILA": {"MOCHILA", "MOCHILAS"},
+        "PALETA": {"PALETA", "PALETA PADEL"},
+        "PELOTA": {"PELOTA", "PELOTAS", "PELOTAS GRAL"},
+        "PROTECTOR": {"PROTECTOR", "PROTECTOR BUCAL"},
+        "RAQUETA": {"RAQUETA", "RAQUETA TENIS"},
+        "RIÑONERA": {"RIÑONERA", "RINONERA", "RIÑONERAS", "RINONERAS"},
+        "RODILLERA": {"RODILLERA", "RODILLERAS", "RODILLERA VOLEY"},
+        "TOBILLERAS": {"TOBILLERA", "TOBILLERAS"},
+        "VENDAS": {"VENDA", "VENDAS"},
+        "YOGA MATE": {"YOGA", "MAT YOGA", "COLCHONETA"},
+    }
+    terminos = set(alias.get(silueta, set()))
+    terminos.update(_variantes_basicas(silueta))
+    return {_limpiar_espacios(_normalizar(t)) for t in terminos if t}
+
+
+def _objetivo_contiene_termino(objetivo, termino):
+    descripcion = _normalizar(descripcion_catalogo(objetivo))
+    if not termino:
+        return False
+    if " " in termino:
+        return termino in descripcion
+    return termino in _tokens_texto(descripcion)
+
+
+def _filtrar_objetivos_por_silueta_acc(objetivos, silueta_sel):
+    terminos = _terminos_silueta_acc(silueta_sel)
+    if not terminos:
+        return objetivos
+    filtrados = [
+        objetivo for objetivo in objetivos
+        if any(_objetivo_contiene_termino(objetivo, termino) for termino in terminos)
+    ]
+    if filtrados:
+        return filtrados
+    otros = [
+        objetivo for objetivo in objetivos
+        if descripcion_catalogo(objetivo) == "ACC OTROS"
+    ]
+    return otros or objetivos
+
+
+def _filtrar_objetivos_por_uso_acc(objetivos, uso_sel):
+    uso = descripcion_catalogo(uso_sel)
+    if not uso:
+        return objetivos
+
+    uso_norm = _limpiar_espacios(_normalizar(uso))
+    terminos = {uso_norm}
+    if uso_norm == "FUTBOL GENERAL":
+        terminos.add("FUTBOL")
+    elif uso_norm == "TENIS":
+        terminos.add("TENIS PADEL")
+    elif uso_norm == "PADEL":
+        terminos.add("TENIS PADEL")
+
+    filtrados = [
+        objetivo for objetivo in objetivos
+        if any(_objetivo_contiene_termino(objetivo, termino) for termino in terminos)
+    ]
+    return filtrados or objetivos
+
+
+def _objetivos_generales_pelota_acc(objetivos):
+    return [
+        objetivo for objetivo in objetivos
+        if descripcion_catalogo(objetivo) in {"ACC PELOTAS GRAL", "ACC OTROS PELOTAS"}
+    ]
+
+
+def _filtrar_objetivos_pelota_acc(objetivos, uso_sel):
+    uso = descripcion_catalogo(uso_sel)
+    generales = _objetivos_generales_pelota_acc(objetivos)
+    if not uso:
+        return generales or objetivos
+
+    uso_norm = _limpiar_espacios(_normalizar(uso))
+    if uso_norm == "FUTBOL GENERAL" or uso_norm.startswith("FUTBOL "):
+        exactos = [
+            objetivo for objetivo in objetivos
+            if _objetivo_contiene_termino(objetivo, uso_norm)
+        ]
+        filtrados = exactos or [
+            objetivo for objetivo in objetivos
+            if _objetivo_contiene_termino(objetivo, "FUTBOL")
+        ]
+        return filtrados + [objetivo for objetivo in generales if objetivo not in filtrados]
+
+    exactos = [
+        objetivo for objetivo in objetivos
+        if _objetivo_contiene_termino(objetivo, uso_norm)
+    ]
+    return exactos or generales or objetivos
+
+
+def filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos):
+    prefijo = tipo_prefijo(tipo_sel)
+    if prefijo:
+        por_tipo = [
+            objetivo for objetivo in objetivos
+            if descripcion_catalogo(objetivo).startswith(prefijo)
+            or codigo_catalogo(objetivo).startswith(prefijo)
+        ]
+        por_tipo = por_tipo or objetivos
+    else:
+        por_tipo = [
+            objetivo for objetivo in objetivos
+            if "N/A" in f"{codigo_catalogo(objetivo)} {descripcion_catalogo(objetivo)}"
+        ]
+        return por_tipo or objetivos[:1]
+
+    if prefijo != "ACC":
+        return por_tipo
+
+    por_silueta = _filtrar_objetivos_por_silueta_acc(por_tipo, silueta_sel)
+    if descripcion_catalogo(silueta_sel) == "PELOTA":
+        return _filtrar_objetivos_pelota_acc(por_silueta, uso_sel)
+    por_uso = _filtrar_objetivos_por_uso_acc(por_silueta, uso_sel)
+    return por_uso or por_silueta or por_tipo
 
 
 def dedupe_descripciones(items):

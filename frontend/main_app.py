@@ -22,9 +22,8 @@ if PROJECT_ROOT not in sys.path:
 from backend.utils.abm_articulos_reglas import (
     filtrar_descripciones_talle,
     filtrar_edades,
+    filtrar_objetivos,
     filtrar_siluetas,
-    tipo_prefijo,
-    tipo_texto_talle,
     valor_sugerido,
 )
 
@@ -869,14 +868,6 @@ def _dedupe_descripciones(items):
     return sorted(values)
 
 
-def _tipo_prefijo(tipo_sel):
-    return tipo_prefijo(tipo_sel)
-
-
-def _tipo_texto_talle(tipo_sel):
-    return tipo_texto_talle(tipo_sel)
-
-
 def _default_index(items, terms, allow_none=True):
     options = ([None] if allow_none else []) + list(items)
     terms_norm = [t.upper() for t in terms]
@@ -980,17 +971,8 @@ def _edades_para_tipo_genero(tipo_sel, genero_sel, edades):
     return filtrar_edades(tipo_sel, genero_sel, edades)
 
 
-def _objetivos_para_tipo(tipo_sel, objetivos):
-    prefijo = _tipo_prefijo(tipo_sel)
-    if prefijo:
-        filtrados = [
-            o for o in objetivos
-            if (o.get("descripcion") or "").upper().startswith(prefijo)
-            or (o.get("codigo") or "").upper().startswith(prefijo)
-        ]
-        return filtrados or objetivos
-    n_a = [o for o in objetivos if "N/A" in f"{o.get('codigo', '')} {o.get('descripcion', '')}".upper()]
-    return n_a or objetivos[:1]
+def _objetivos_para_reglas(tipo_sel, silueta_sel, uso_sel, objetivos):
+    return filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos)
 
 
 def _descripciones_talle_para_reglas(tipo_sel, edad_sel, genero_sel, marca_sel, talles):
@@ -1098,7 +1080,6 @@ def _render_abm_articulos() -> None:
     seg_marathon = catalogos.get("segmentaciones_marathon", [])
     vidrieras = catalogos.get("vidrieras", [])
     divisiones = catalogos.get("divisiones", [])
-    objetivos_filtrados = _objetivos_para_tipo(tipo_sel, catalogos.get("objetivos", []))
 
     c6, c7, c8 = st.columns(3)
     genero_sel = c6.selectbox("Desc. Genero", [None] + catalogos.get("generos", []), format_func=_label, key="abm_genero")
@@ -1124,6 +1105,7 @@ def _render_abm_articulos() -> None:
     silueta_sel = c8a.selectbox("Desc. Silueta", [None] + siluetas_filtradas, format_func=_label, key="abm_silueta")
     uso_sel = c8b.selectbox("Desc. Uso", [None] + catalogos.get("usos", []), format_func=_label, key="abm_uso")
     capsula_sel = c8c.selectbox("Desc. Capsula", [None] + capsulas, index=_default_index(capsulas, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_capsula")
+    objetivos_filtrados = _objetivos_para_reglas(tipo_sel, silueta_sel, uso_sel, catalogos.get("objetivos", []))
 
     c9, c10, c11 = st.columns(3)
     division_sel = c9.selectbox(
