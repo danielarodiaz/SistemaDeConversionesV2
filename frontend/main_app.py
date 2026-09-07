@@ -15,11 +15,7 @@ import uuid
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
-from backend.utils.abm_articulos_reglas import (
+from abm_articulos_reglas import (
     filtrar_descripciones_talle,
     filtrar_edades,
     filtrar_objetivos,
