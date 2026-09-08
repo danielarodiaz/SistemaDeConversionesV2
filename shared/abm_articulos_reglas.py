@@ -91,6 +91,10 @@ def _tokens_texto(texto):
     return set(_limpiar_espacios(texto_norm).split())
 
 
+def _tokens_catalogo(item):
+    return _tokens_texto(descripcion_catalogo(item))
+
+
 def _es_tipo(tipo_sel, *valores):
     texto = texto_catalogo(tipo_sel)
     return _contiene(texto, valores)
@@ -98,11 +102,12 @@ def _es_tipo(tipo_sel, *valores):
 
 def _normalizar_edad_para_talle(edad_sel):
     descripcion = descripcion_catalogo(edad_sel)
+    tokens = _tokens_catalogo(edad_sel)
     if "ADULTO" in descripcion:
         return "ADULTO"
-    if "NIÑO" in descripcion or "NINO" in descripcion:
+    if tokens.intersection({"NIÑO", "NINO"}):
         return "NIÑO"
-    if "BEBE" in descripcion:
+    if "BEBE" in tokens:
         return "BEBE"
     return descripcion
 
@@ -305,7 +310,8 @@ def _filtrar_objetivos_pelota_acc(objetivos, uso_sel):
 
 def _edad_objetivo_cal(edad_sel):
     edad = descripcion_catalogo(edad_sel)
-    if "NIÑO" in edad or "NINO" in edad or "BEBE" in edad:
+    tokens = _tokens_catalogo(edad_sel)
+    if tokens.intersection({"NIÑO", "NINO", "BEBE"}):
         return "NIÑO"
     if "ADULTO" in edad:
         return "ADULTO"
@@ -379,7 +385,113 @@ def _filtrar_objetivos_cal(tipo_sel, silueta_sel, uso_sel, edad_sel, objetivos):
     return por_uso or por_edad
 
 
-def filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=None):
+def _terminos_genero_ind(genero_sel, edad_sel):
+    edad = descripcion_catalogo(edad_sel)
+    genero = descripcion_catalogo(genero_sel)
+    edad_tokens = _tokens_catalogo(edad_sel)
+    if edad_tokens.intersection({"NIÑO", "NINO", "BEBE"}):
+        return {"NIÑ", "NIÑO", "NINO"}
+    if "MUJER" in genero or "FEMENINO" in edad:
+        return {"MUJ"}
+    if "HOMBRE" in genero or "MASCULINO" in edad or "UNISEX" in genero:
+        return {"HOMB", "HOM"}
+    return set()
+
+
+def _filtrar_objetivos_por_genero_ind(objetivos, genero_sel, edad_sel):
+    terminos = _terminos_genero_ind(genero_sel, edad_sel)
+    if not terminos:
+        return objetivos
+    filtrados = _objetivos_con_terminos(objetivos, terminos)
+    return filtrados or objetivos
+
+
+def _terminos_silueta_ind(silueta_sel):
+    silueta = descripcion_catalogo(silueta_sel)
+    alias = {
+        "BERMUDA": {"BERMU", "BERMUDA"},
+        "BOXER": {"BOXER"},
+        "BUZO": {"BUZO"},
+        "CALZA": {"CALZA"},
+        "CAMISA": {"CAMISA"},
+        "CAMISETA": {"REME"},
+        "CAMPERA": {"CAMPE", "CAMPERA"},
+        "CHALECO": {"OTROS"},
+        "CHOMBA": {"CHOMBA"},
+        "CONJUNTO": {"CONJUNTO"},
+        "HOODIE": {"HOODIE"},
+        "JEANS": {"JEANS"},
+        "JERSEY": {"JERSEY"},
+        "MALLA": {"MALLA"},
+        "MUSCULOSA": {"MUSC", "MUSCULOSA"},
+        "PANTALON": {"PANT", "PANTALON"},
+        "PECHERA": {"OTROS"},
+        "POLLERA": {"POLLERA"},
+        "REMERA": {"REME"},
+        "REMERA TERMICA": {"REME TERMICA"},
+        "SHORT": {"SHORT"},
+        "TOP": {"TOP"},
+        "VARIOS": {"OTROS"},
+    }
+    terminos = set(alias.get(silueta, set()))
+    terminos.update(_variantes_basicas(silueta))
+    return {_limpiar_espacios(_normalizar(t)) for t in terminos if t}
+
+
+def _terminos_uso_ind(uso_sel):
+    uso = _limpiar_espacios(_normalizar(descripcion_catalogo(uso_sel)))
+    return {
+        "CICLISMO": {"CICL"},
+        "FUTBOL 11": {"FUTB"},
+        "FUTBOL GENERAL": {"FUTB"},
+        "FUTBOL 5": {"FUTB"},
+        "FUTSAL": {"FUTB"},
+        "LIFESTYLE": {"MOD"},
+        "MODA": {"MOD"},
+        "RUNNING": {"TRAI"},
+        "TRAINING": {"TRAI"},
+        "TRAIL": {"TRAI"},
+        "VOLEY": {"TRAI"},
+        "BASQUET": {"TRAI"},
+        "TENIS": {"TRAI"},
+        "PADEL": {"TRAI"},
+        "NATACION": {"TRAI"},
+    }.get(uso, set())
+
+
+def _objetivos_otros_ind(objetivos, genero_sel, edad_sel):
+    terminos_genero = _terminos_genero_ind(genero_sel, edad_sel)
+    otros = [
+        objetivo for objetivo in objetivos
+        if _objetivo_contiene_termino(objetivo, "OTROS")
+        and (not terminos_genero or any(_objetivo_contiene_termino(objetivo, termino) for termino in terminos_genero))
+    ]
+    return otros
+
+
+def _filtrar_objetivos_ind(silueta_sel, uso_sel, genero_sel, edad_sel, objetivos):
+    por_genero = _filtrar_objetivos_por_genero_ind(objetivos, genero_sel, edad_sel)
+    terminos_silueta = _terminos_silueta_ind(silueta_sel)
+    por_silueta = _objetivos_con_terminos(por_genero, terminos_silueta)
+    por_uso_y_silueta = _objetivos_con_terminos(por_silueta, _terminos_uso_ind(uso_sel))
+    if por_uso_y_silueta:
+        return por_uso_y_silueta
+    if por_silueta:
+        return por_silueta
+    if terminos_silueta:
+        otros = _objetivos_otros_ind(por_genero, genero_sel, edad_sel)
+        if otros:
+            return otros
+
+    por_uso = _objetivos_con_terminos(por_genero, _terminos_uso_ind(uso_sel))
+    if por_uso:
+        return por_uso
+
+    otros = _objetivos_otros_ind(por_genero, genero_sel, edad_sel)
+    return otros or por_genero
+
+
+def filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=None, genero_sel=None):
     prefijo = tipo_prefijo(tipo_sel)
     if prefijo:
         por_tipo = [
@@ -397,6 +509,9 @@ def filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=None):
 
     if prefijo == "CAL":
         return _filtrar_objetivos_cal(tipo_sel, silueta_sel, uso_sel, edad_sel, por_tipo)
+
+    if prefijo == "IND":
+        return _filtrar_objetivos_ind(silueta_sel, uso_sel, genero_sel, edad_sel, por_tipo)
 
     if prefijo != "ACC":
         return por_tipo
