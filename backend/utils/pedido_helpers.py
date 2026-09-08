@@ -396,12 +396,32 @@ def auditar_promos_articulos(
         }
         if proveedor:
             alerta["Proveedor"] = proveedor
-        if origen:
-            alerta["Origen"] = origen
         alertas.append(alerta)
 
     _registrar_auditoria_promos(alertas, proveedor=proveedor, origen=origen)
     return alertas
+
+
+def exportar_alertas_promos(alertas_promos: list, output_folder: str, proveedor: str, ts: str) -> str | None:
+    """
+    Exporta el listado de articulos con promo activa para adjuntarlo al ZIP de descarga.
+    """
+    if not alertas_promos:
+        return None
+
+    filas = []
+    for alerta in alertas_promos:
+        filas.append({
+            "Articulo": alerta.get("Articulo", ""),
+            "Descripcion": alerta.get("Descripcion", ""),
+            "Promo": alerta.get("Promo", ""),
+            "Proveedor": alerta.get("Proveedor", proveedor),
+        })
+
+    filename = f"{proveedor}_{ts}_PROMOS_ACTIVAS.xlsx"
+    path = os.path.join(output_folder, filename)
+    pd.DataFrame(filas).to_excel(path, index=False)
+    return path
 
 
 def resolver_codigos_articulo_para_auditoria_promos(

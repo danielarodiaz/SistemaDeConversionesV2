@@ -614,6 +614,7 @@ def _render_audit_results(data: dict) -> None:
 
         if audit.get("alertas_promos"):
             df_promos = pd.DataFrame(audit["alertas_promos"])
+            df_promos = df_promos.drop(columns=["Origen"], errors="ignore")
             articulos_promo = df_promos["Articulo"].nunique() if "Articulo" in df_promos.columns else len(df_promos)
             st.warning(f"Se detectaron {articulos_promo} artículo(s) con promo activa en CEGID.")
             with st.expander("Ver artículos con promo activa", expanded=True):

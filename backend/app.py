@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 from backend.utils.pedido_helpers import (
     auditar_promos_articulos,
+    exportar_alertas_promos,
     generar_zip_con_variaciones,
     resolver_codigos_articulo_para_auditoria_promos,
 )
@@ -758,6 +759,16 @@ def process_file(provider_id):
         # ── Empacar en ZIP si hay variaciones de precio ───────────────────────
         # Se genera siempre que haya cambios_precio, independientemente del procesador.
         cambios = audit_report.get('cambios_precio', [])
+        alertas_promos = audit_report.get('alertas_promos', [])
+        promo_path = exportar_alertas_promos(
+            alertas_promos,
+            OUTPUT_FOLDER,
+            provider_id.upper(),
+            ts,
+        )
+        if promo_path:
+            archivos_extra.append(promo_path)
+
         if cambios and os.path.exists(output_path):
             proveedor_slug = provider_id.upper()
             zip_path = generar_zip_con_variaciones(
@@ -774,12 +785,19 @@ def process_file(provider_id):
                             zf.write(extra_path, os.path.basename(extra_path))
                             os.remove(extra_path)
             output_filename = os.path.basename(zip_path)
-        elif archivos_extra and os.path.exists(output_path):
+        elif archivos_extra and result_output_path.lower().endswith(".zip") and os.path.exists(result_output_path):
+            with zipfile.ZipFile(result_output_path, 'a', zipfile.ZIP_DEFLATED) as zf:
+                for extra_path in archivos_extra:
+                    if os.path.exists(extra_path):
+                        zf.write(extra_path, os.path.basename(extra_path))
+                        os.remove(extra_path)
+            output_filename = os.path.basename(result_output_path)
+        elif archivos_extra and os.path.exists(result_output_path):
             proveedor_slug = provider_id.upper()
             base = f"{proveedor_slug}_{ts}"
             import_filename = f"{base}_IMPORTACION.csv"
             import_path = os.path.join(OUTPUT_FOLDER, import_filename)
-            os.rename(output_path, import_path)
+            os.rename(result_output_path, import_path)
 
             zip_filename = f"{base}.zip"
             zip_path = os.path.join(OUTPUT_FOLDER, zip_filename)
