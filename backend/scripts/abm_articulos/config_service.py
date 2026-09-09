@@ -1,11 +1,11 @@
 from sqlalchemy import func
 
-from backend.models import Proveedor, ProveedorMarca, marca, markup, objetivoGeneral
+from backend.models import Proveedor, ProveedorMarca, marca, markup, objetivoGeneral, subtipo
 from backend.services.unit_of_work import UnitOfWork
 from backend.scripts.abm_articulos.service import obtener_catalogos
 
 
-MODULOS = {"proveedores", "marcas", "proveedor-marca", "objetivos", "markups"}
+MODULOS = {"proveedores", "marcas", "proveedor-marca", "objetivos", "markups", "subtipos"}
 
 
 def _limpiar(valor):
@@ -57,6 +57,14 @@ def _serializar_objetivo(row):
         "id": row.id,
         "codigo": row.codigoObjetivoGeneral or "",
         "descripcion": row.descripcionObjetivoGeneral or "",
+    }
+
+
+def _serializar_subtipo(row):
+    return {
+        "id": row.id,
+        "codigo": row.codigoSubtipo or "",
+        "descripcion": row.descripcionSubtipo or "",
     }
 
 
@@ -139,6 +147,9 @@ def listar_config(modulo):
         if modulo == "objetivos":
             rows = uow.session.query(objetivoGeneral).order_by(objetivoGeneral.codigoObjetivoGeneral).all()
             return [_serializar_objetivo(row) for row in rows]
+        if modulo == "subtipos":
+            rows = uow.session.query(subtipo).order_by(subtipo.codigoSubtipo).all()
+            return [_serializar_subtipo(row) for row in rows]
         if modulo == "markups":
             rows = (
                 uow.session.query(markup)
@@ -211,6 +222,19 @@ def crear_config(modulo, payload):
             uow.session.flush()
             _clear_catalogos()
             return _serializar_objetivo(row)
+
+        if modulo == "subtipos":
+            codigo = _normalizar(payload.get("codigoSubtipo") or payload.get("codigo"))
+            descripcion = _limpiar(payload.get("descripcionSubtipo") or payload.get("descripcion"))
+            if not codigo or not descripcion:
+                raise ValueError("Codigo y descripcion de subtipo son obligatorios.")
+            if uow.session.query(subtipo).filter(subtipo.codigoSubtipo == codigo).first():
+                raise ValueError("Ya existe un subtipo con ese codigo.")
+            row = subtipo(codigoSubtipo=codigo, descripcionSubtipo=descripcion)
+            uow.session.add(row)
+            uow.session.flush()
+            _clear_catalogos()
+            return _serializar_subtipo(row)
 
         if modulo == "markups":
             codigo_marca = _normalizar(payload.get("codigoMarca") or payload.get("codigo"))
@@ -323,6 +347,20 @@ def actualizar_config(modulo, item_id, payload):
             _clear_catalogos()
             return _serializar_objetivo(row)
 
+        if modulo == "subtipos":
+            row = uow.session.get(subtipo, int(item_id))
+            if not row:
+                return None
+            codigo = _normalizar(payload.get("codigoSubtipo") or payload.get("codigo") or row.codigoSubtipo)
+            duplicado = uow.session.query(subtipo).filter(subtipo.codigoSubtipo == codigo, subtipo.id != row.id).first()
+            if duplicado:
+                raise ValueError("Ya existe otro subtipo con ese codigo.")
+            row.codigoSubtipo = codigo
+            row.descripcionSubtipo = _limpiar(payload.get("descripcionSubtipo") or payload.get("descripcion") or row.descripcionSubtipo)
+            uow.session.flush()
+            _clear_catalogos()
+            return _serializar_subtipo(row)
+
         if modulo == "markups":
             row = uow.session.get(markup, int(item_id))
             if not row:
@@ -397,6 +435,8 @@ def eliminar_config(modulo, item_id):
             row = uow.session.get(ProveedorMarca, int(item_id))
         elif modulo == "markups":
             row = uow.session.get(markup, int(item_id))
+        elif modulo == "subtipos":
+            row = uow.session.get(subtipo, int(item_id))
         else:
             row = uow.session.get(objetivoGeneral, int(item_id))
         if not row:

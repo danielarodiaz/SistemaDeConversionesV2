@@ -209,12 +209,14 @@ class año(Base):
     descripcionAño = Column(String(20), index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
-class canal(Base):
-    __tablename__ = 'canales'
+class subtipo(Base):
+    __tablename__ = 'subtipo'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    codigoCanal = Column(String(50), index=True)
-    descripcionCanal = Column(String(255), index=True)
+    codigoSubtipo = Column(String(50), index=True)
+    descripcionSubtipo = Column(String(255), index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+canal = subtipo
 
 class capsula(Base):
     __tablename__ = 'capsulas'
@@ -342,12 +344,14 @@ class segmentacionProveedor(Base):
     descripcionSegmentacionProveedor = Column(String(30), index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
-class silueta(Base):
-    __tablename__ = 'silueta'
+class presentacion(Base):
+    __tablename__ = 'presentacion'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    codigoSilueta = Column(String(50), index=True)
-    descripcionSilueta = Column(String(30), index=True)
+    codigoPresentacion = Column(String(50), index=True)
+    descripcionPresentacion = Column(String(30), index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+silueta = presentacion
 
 class ABMArticuloLote(Base):
     __tablename__ = 'abm_articulos_lotes'
@@ -379,8 +383,8 @@ class Articulo(Base):
     descripcionGenero = Column(String(255))
     
     # 11 - 15
-    silueta = Column(String(50))
-    descripcionSilueta = Column(String(255))
+    presentacion = Column(String(50))
+    descripcionPresentacion = Column(String(255))
     uso = Column(String(50))
     descripcionUso = Column(String(255))
     promo = Column(String(50))
@@ -406,7 +410,7 @@ class Articulo(Base):
     medida = Column(String(50))
     codigoGen = Column(String(50))
     genero2 = Column(String(50))
-    canal = Column(String(50))
+    subtipo = Column(String(50))
     
     # 31 - 35
     codigoCapsula = Column(String(50))
@@ -425,6 +429,30 @@ class Articulo(Base):
     estado = Column(String(50), default='borrador', nullable=True, index=True)
     lote_id = Column(Integer, ForeignKey('abm_articulos_lotes.id'), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    @property
+    def silueta(self):
+        return self.presentacion
+
+    @silueta.setter
+    def silueta(self, value):
+        self.presentacion = value
+
+    @property
+    def descripcionSilueta(self):
+        return self.descripcionPresentacion
+
+    @descripcionSilueta.setter
+    def descripcionSilueta(self, value):
+        self.descripcionPresentacion = value
+
+    @property
+    def canal(self):
+        return self.subtipo
+
+    @canal.setter
+    def canal(self, value):
+        self.subtipo = value
     
 class ArticuloComplementario(Base):
     __tablename__ = 'articulosComplementarios'

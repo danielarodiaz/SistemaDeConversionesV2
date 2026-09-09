@@ -17,7 +17,6 @@ from models import (
     Proveedor,
     TalleMaestro,
     año,
-    canal,
     capsula,
     color,
     division,
@@ -33,7 +32,8 @@ from models import (
     sap,
     segmentacionMarathon,
     segmentacionProveedor,
-    silueta,
+    presentacion,
+    subtipo,
     temporada,
     tipoProducto,
     uso,
@@ -219,8 +219,8 @@ def seed_catalogos(session):
         {"codigoAnio": "codigoAño", "descripcionAño": "descripcionAño"},
     )
     total += _seed_simple_catalog(
-        session, canal, "canal.csv",
-        {"codigoCanal": "canal", "descripcionCanal": "descripcion"},
+        session, subtipo, "canal.csv",
+        {"codigoSubtipo": "canal", "descripcionSubtipo": "descripcion"},
     )
     total += _seed_simple_catalog(
         session, capsula, "capsulas.csv",
@@ -278,8 +278,8 @@ def seed_catalogos(session):
         },
     )
     total += _seed_simple_catalog(
-        session, silueta, "silueta.csv",
-        {"codigoSilueta": "silueta", "descripcionSilueta": "descripcion"},
+        session, presentacion, "silueta.csv",
+        {"codigoPresentacion": "silueta", "descripcionPresentacion": "descripcion"},
     )
     total += _seed_simple_catalog(
         session, temporada, "temporada.csv",
@@ -488,11 +488,11 @@ def seed_articulos(session):
     articulo_fields = [
         "codigo", "descripcion", "tipoProducto", "descripcionProducto",
         "grupoSAP", "descripcionGrupoSAP", "marca", "descripcionMarca",
-        "genero", "descripcionGenero", "silueta", "descripcionSilueta",
+        "genero", "descripcionGenero", "presentacion", "descripcionPresentacion",
         "uso", "descripcionUso", "codigoBarra", "talle", "descripcionTalle",
         "valorTalle", "descripcionValorTalle", "color", "descripcionColor",
         "valor", "descripcionValor", "nombreProveedor", "codigoMedida",
-        "tipoMedida", "medida", "codigoGen", "genero2", "canal",
+        "tipoMedida", "medida", "codigoGen", "genero2", "subtipo",
         "codigoCapsula", "descripcionCapsula", "codigoDivision",
         "descripcionDivision", "codigoTemporada", "descripcionTemporada",
         "grupo", "descripciongrupo",
@@ -510,6 +510,11 @@ def seed_articulos(session):
         kwargs = {"id": row_id}
         for field in articulo_fields:
             kwargs[field] = _clean(row.get(field))
+        kwargs["presentacion"] = kwargs["presentacion"] or _clean(row.get("silueta"))
+        kwargs["descripcionPresentacion"] = (
+            kwargs["descripcionPresentacion"] or _clean(row.get("descripcionSilueta"))
+        )
+        kwargs["subtipo"] = kwargs["subtipo"] or _clean(row.get("canal"))
 
         session.add(Articulo(**kwargs))
         inserted += 1

@@ -135,7 +135,7 @@ def filtrar_edades(tipo_sel, genero_sel, edades):
     return filtradas or edades
 
 
-def filtrar_siluetas(tipo_sel, siluetas):
+def filtrar_presentaciones(tipo_sel, presentaciones):
     tipo = codigo_catalogo(tipo_sel)
     if not tipo:
         return []
@@ -151,8 +151,12 @@ def filtrar_siluetas(tipo_sel, siluetas):
             "MED": ("MED",),
             "BIC": ("BIC",),
         }.get(tipo, (tipo,))
-    filtradas = [s for s in siluetas if codigo_catalogo(s).startswith(prefijos)]
-    return filtradas or siluetas
+    filtradas = [p for p in presentaciones if codigo_catalogo(p).startswith(prefijos)]
+    return filtradas or presentaciones
+
+
+def filtrar_siluetas(tipo_sel, siluetas):
+    return filtrar_presentaciones(tipo_sel, siluetas)
 
 
 def valor_sugerido(genero_sel, edad_sel, valores_genero):
@@ -178,6 +182,50 @@ def valor_sugerido(genero_sel, edad_sel, valores_genero):
     return next((item for item in valores_genero if descripcion_catalogo(item) == valor), None)
 
 
+def _subtipo_na(subtipos):
+    return next((item for item in subtipos if codigo_catalogo(item) == "N/A"), None)
+
+
+def _subtipos_por_descripcion(subtipos, descripciones):
+    descripciones_norm = {_limpiar_espacios(_normalizar(desc)) for desc in descripciones}
+    return [
+        item for item in subtipos
+        if _limpiar_espacios(_normalizar(descripcion_catalogo(item))) in descripciones_norm
+    ]
+
+
+def filtrar_subtipos(presentacion_sel, uso_sel, subtipos):
+    if not subtipos:
+        return []
+
+    na = _subtipo_na(subtipos)
+    presentacion = _limpiar_espacios(_normalizar(descripcion_catalogo(presentacion_sel)))
+    uso = _limpiar_espacios(_normalizar(descripcion_catalogo(uso_sel)))
+
+    reglas_por_presentacion = {
+        "CALZA": {"CORTA", "BIKER", "7/8", "LARGA"},
+        "CROPTOP": {"CROP", "CON TAZA", "SIN TAZA"},
+        "TOP": {"CON TAZA", "SIN TAZA", "REGULAR"},
+        "REMERA": {"CROP", "REGULAR", "OVERSIZE"},
+    }
+    descripciones = reglas_por_presentacion.get(presentacion)
+
+    if presentacion == "SHORT":
+        if uso in {"RUNNING", "TRAIL"} or uso.startswith("RUN") or uso.startswith("TRAI"):
+            descripciones = {"3 IN", "5 IN"}
+        elif uso == "LIFESTYLE":
+            descripciones = {"REGULAR"}
+        else:
+            descripciones = set()
+
+    filtrados = _subtipos_por_descripcion(subtipos, descripciones or set())
+    resultado = []
+    if na:
+        resultado.append(na)
+    resultado.extend(item for item in filtrados if item is not na)
+    return resultado or ([na] if na else [])
+
+
 def _variantes_basicas(texto):
     limpio = _limpiar_espacios(_normalizar(texto))
     if not limpio:
@@ -200,8 +248,8 @@ def _variantes_basicas(texto):
     return {v for v in variantes if v}
 
 
-def _terminos_silueta_acc(silueta_sel):
-    silueta = descripcion_catalogo(silueta_sel)
+def _terminos_presentacion_acc(presentacion_sel):
+    presentacion = descripcion_catalogo(presentacion_sel)
     alias = {
         "ANTIPARRA": {"ANTIPARRA", "ANTIPARRAS"},
         "CANILLERA": {"CANILLERA", "CANILLERAS"},
@@ -223,8 +271,8 @@ def _terminos_silueta_acc(silueta_sel):
         "VENDAS": {"VENDA", "VENDAS"},
         "YOGA MATE": {"YOGA", "MAT YOGA", "COLCHONETA"},
     }
-    terminos = set(alias.get(silueta, set()))
-    terminos.update(_variantes_basicas(silueta))
+    terminos = set(alias.get(presentacion, set()))
+    terminos.update(_variantes_basicas(presentacion))
     return {_limpiar_espacios(_normalizar(t)) for t in terminos if t}
 
 
@@ -238,8 +286,8 @@ def _objetivo_contiene_termino(objetivo, termino):
     return termino_norm in _tokens_texto(descripcion)
 
 
-def _filtrar_objetivos_por_silueta_acc(objetivos, silueta_sel):
-    terminos = _terminos_silueta_acc(silueta_sel)
+def _filtrar_objetivos_por_presentacion_acc(objetivos, presentacion_sel):
+    terminos = _terminos_presentacion_acc(presentacion_sel)
     if not terminos:
         return objetivos
     filtrados = [
@@ -356,9 +404,9 @@ def _es_tipo_verano(tipo_sel):
     return _es_tipo(tipo_sel, "VER", "VERANO")
 
 
-def _silueta_prioriza_verano(silueta_sel):
-    silueta = descripcion_catalogo(silueta_sel)
-    return silueta in {"OJOTAS", "SANDALIA"}
+def _presentacion_prioriza_verano(presentacion_sel):
+    presentacion = descripcion_catalogo(presentacion_sel)
+    return presentacion in {"OJOTAS", "SANDALIA"}
 
 
 def _filtrar_objetivos_por_terminos(objetivos, terminos):
@@ -375,9 +423,9 @@ def _objetivos_con_terminos(objetivos, terminos):
     ]
 
 
-def _filtrar_objetivos_cal(tipo_sel, silueta_sel, uso_sel, edad_sel, objetivos):
+def _filtrar_objetivos_cal(tipo_sel, presentacion_sel, uso_sel, edad_sel, objetivos):
     por_edad = _filtrar_objetivos_por_edad_cal(objetivos, edad_sel)
-    if _es_tipo_verano(tipo_sel) or _silueta_prioriza_verano(silueta_sel):
+    if _es_tipo_verano(tipo_sel) or _presentacion_prioriza_verano(presentacion_sel):
         verano = _objetivos_con_terminos(por_edad, {"VERA"})
         return verano or por_edad
 
@@ -406,8 +454,8 @@ def _filtrar_objetivos_por_genero_ind(objetivos, genero_sel, edad_sel):
     return filtrados or objetivos
 
 
-def _terminos_silueta_ind(silueta_sel):
-    silueta = descripcion_catalogo(silueta_sel)
+def _terminos_presentacion_ind(presentacion_sel):
+    presentacion = descripcion_catalogo(presentacion_sel)
     alias = {
         "BERMUDA": {"BERMU", "BERMUDA"},
         "BOXER": {"BOXER"},
@@ -433,8 +481,8 @@ def _terminos_silueta_ind(silueta_sel):
         "TOP": {"TOP"},
         "VARIOS": {"OTROS"},
     }
-    terminos = set(alias.get(silueta, set()))
-    terminos.update(_variantes_basicas(silueta))
+    terminos = set(alias.get(presentacion, set()))
+    terminos.update(_variantes_basicas(presentacion))
     return {_limpiar_espacios(_normalizar(t)) for t in terminos if t}
 
 
@@ -469,16 +517,16 @@ def _objetivos_otros_ind(objetivos, genero_sel, edad_sel):
     return otros
 
 
-def _filtrar_objetivos_ind(silueta_sel, uso_sel, genero_sel, edad_sel, objetivos):
+def _filtrar_objetivos_ind(presentacion_sel, uso_sel, genero_sel, edad_sel, objetivos):
     por_genero = _filtrar_objetivos_por_genero_ind(objetivos, genero_sel, edad_sel)
-    terminos_silueta = _terminos_silueta_ind(silueta_sel)
-    por_silueta = _objetivos_con_terminos(por_genero, terminos_silueta)
-    por_uso_y_silueta = _objetivos_con_terminos(por_silueta, _terminos_uso_ind(uso_sel))
-    if por_uso_y_silueta:
-        return por_uso_y_silueta
-    if por_silueta:
-        return por_silueta
-    if terminos_silueta:
+    terminos_presentacion = _terminos_presentacion_ind(presentacion_sel)
+    por_presentacion = _objetivos_con_terminos(por_genero, terminos_presentacion)
+    por_uso_y_presentacion = _objetivos_con_terminos(por_presentacion, _terminos_uso_ind(uso_sel))
+    if por_uso_y_presentacion:
+        return por_uso_y_presentacion
+    if por_presentacion:
+        return por_presentacion
+    if terminos_presentacion:
         otros = _objetivos_otros_ind(por_genero, genero_sel, edad_sel)
         if otros:
             return otros
@@ -491,7 +539,7 @@ def _filtrar_objetivos_ind(silueta_sel, uso_sel, genero_sel, edad_sel, objetivos
     return otros or por_genero
 
 
-def filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=None, genero_sel=None):
+def filtrar_objetivos(tipo_sel, presentacion_sel, uso_sel, objetivos, edad_sel=None, genero_sel=None):
     prefijo = tipo_prefijo(tipo_sel)
     if prefijo:
         por_tipo = [
@@ -508,19 +556,19 @@ def filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=None, 
         return por_tipo or objetivos[:1]
 
     if prefijo == "CAL":
-        return _filtrar_objetivos_cal(tipo_sel, silueta_sel, uso_sel, edad_sel, por_tipo)
+        return _filtrar_objetivos_cal(tipo_sel, presentacion_sel, uso_sel, edad_sel, por_tipo)
 
     if prefijo == "IND":
-        return _filtrar_objetivos_ind(silueta_sel, uso_sel, genero_sel, edad_sel, por_tipo)
+        return _filtrar_objetivos_ind(presentacion_sel, uso_sel, genero_sel, edad_sel, por_tipo)
 
     if prefijo != "ACC":
         return por_tipo
 
-    por_silueta = _filtrar_objetivos_por_silueta_acc(por_tipo, silueta_sel)
-    if descripcion_catalogo(silueta_sel) == "PELOTA":
-        return _filtrar_objetivos_pelota_acc(por_silueta, uso_sel)
-    por_uso = _filtrar_objetivos_por_uso_acc(por_silueta, uso_sel)
-    return por_uso or por_silueta or por_tipo
+    por_presentacion = _filtrar_objetivos_por_presentacion_acc(por_tipo, presentacion_sel)
+    if descripcion_catalogo(presentacion_sel) == "PELOTA":
+        return _filtrar_objetivos_pelota_acc(por_presentacion, uso_sel)
+    por_uso = _filtrar_objetivos_por_uso_acc(por_presentacion, uso_sel)
+    return por_uso or por_presentacion or por_tipo
 
 
 def dedupe_descripciones(items):

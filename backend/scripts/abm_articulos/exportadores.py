@@ -14,10 +14,10 @@ except ModuleNotFoundError:
 ITEC_HEADER = (
     "CABECERA|Codigo_Articulo|Descripcion_para_la_Compra|Tipo_de_Producto|Desc_Tipo_de_Producto|"
     "Grupo|Desc_Grupo|Grupo_SAP_B1|Desc_Grupo_SAP_B1|||||||||||Departamento|Desc_Departamento|"
-    "Marca|Desc_Marca|GENERO|Desc_Genero|Silueta|Desc_Silueta|Uso|Desc_Uso|Promo|Desc_Promo|||||||||||||||||||"
+    "Marca|Desc_Marca|GENERO|Desc_Genero|Presentacion|Desc_Presentacion|Uso|Desc_Uso|Promo|Desc_Promo|||||||||||||||||||"
     "Codigo_de_Barra|Talle|Desc_Talle|Valor_Talle|Des._Valor   Talle|Color|Des._Color|Valor_Color|"
     "Desc._Valor_Color|||||||||Proveedor_Habitual||||||||||||||||||||||CODIGO|NOMBRE|VALOR|CODIGO|VALOR|"
-    "CANAL|codigoCapsula|codigoDivision|codigoTemporada"
+    "Subtipo|codigoCapsula|codigoDivision|codigoTemporada"
 ).split("|")
 
 LCOC_HEADER = "CABECERA|PERIODO|tipo|Precio|Cod Articulo".split("|")
@@ -66,8 +66,8 @@ def fila_itec(articulo):
         _valor(articulo, "descripcionMarca"),
         _valor(articulo, "genero"),
         _valor(articulo, "descripcionGenero"),
-        _valor(articulo, "silueta"),
-        _valor(articulo, "descripcionSilueta"),
+        _valor(articulo, "presentacion"),
+        _valor(articulo, "descripcionPresentacion"),
         _valor(articulo, "uso"),
         _valor(articulo, "descripcionUso"),
         _valor(articulo, "promo"),
@@ -94,7 +94,7 @@ def fila_itec(articulo):
         _valor(articulo, "medida"),
         _valor(articulo, "codigoGen"),
         _valor(articulo, "genero2"),
-        "",
+        _valor(articulo, "subtipo"),
         _valor(articulo, "codigoCapsula"),
         _valor(articulo, "codigoDivision"),
         _valor(articulo, "codigoTemporada"),

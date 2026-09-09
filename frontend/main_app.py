@@ -20,24 +20,19 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 try:
-    from shared.abm_articulos_reglas import (
-        filtrar_descripciones_talle,
-        filtrar_edades,
-        filtrar_objetivos,
-        filtrar_siluetas,
-        valor_sugerido,
-    )
+    from shared import abm_articulos_reglas as abm_reglas
 except ModuleNotFoundError:
     FRONTEND_DIR = os.path.abspath(os.path.dirname(__file__))
     if FRONTEND_DIR not in sys.path:
         sys.path.insert(0, FRONTEND_DIR)
-    from abm_articulos_reglas import (
-        filtrar_descripciones_talle,
-        filtrar_edades,
-        filtrar_objetivos,
-        filtrar_siluetas,
-        valor_sugerido,
-    )
+    import abm_articulos_reglas as abm_reglas
+
+filtrar_descripciones_talle = abm_reglas.filtrar_descripciones_talle
+filtrar_edades = abm_reglas.filtrar_edades
+filtrar_objetivos = abm_reglas.filtrar_objetivos
+filtrar_presentaciones = getattr(abm_reglas, "filtrar_presentaciones", abm_reglas.filtrar_siluetas)
+filtrar_subtipos = getattr(abm_reglas, "filtrar_subtipos", lambda _presentacion_sel, _uso_sel, subtipos: subtipos)
+valor_sugerido = abm_reglas.valor_sugerido
 
 # Carga variables de entorno desde .env si existe
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -976,24 +971,28 @@ def _redondear_a_999(valor):
     return int(math.ceil((float(valor) + 1) / 1000) * 1000 - 1)
 
 
-def _siluetas_para_tipo(tipo_sel, siluetas):
-    return filtrar_siluetas(tipo_sel, siluetas)
+def _presentaciones_para_tipo(tipo_sel, presentaciones):
+    return filtrar_presentaciones(tipo_sel, presentaciones)
 
 
 def _edades_para_tipo_genero(tipo_sel, genero_sel, edades):
     return filtrar_edades(tipo_sel, genero_sel, edades)
 
 
-def _objetivos_para_reglas(tipo_sel, silueta_sel, uso_sel, edad_sel, genero_sel, objetivos):
+def _objetivos_para_reglas(tipo_sel, presentacion_sel, uso_sel, edad_sel, genero_sel, objetivos):
     try:
-        return filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=edad_sel, genero_sel=genero_sel)
+        return filtrar_objetivos(tipo_sel, presentacion_sel, uso_sel, objetivos, edad_sel=edad_sel, genero_sel=genero_sel)
     except TypeError as exc:
         if "edad_sel" not in str(exc) and "genero_sel" not in str(exc):
             raise
         try:
-            return filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos, edad_sel=edad_sel)
+            return filtrar_objetivos(tipo_sel, presentacion_sel, uso_sel, objetivos, edad_sel=edad_sel)
         except TypeError:
-            return filtrar_objetivos(tipo_sel, silueta_sel, uso_sel, objetivos)
+            return filtrar_objetivos(tipo_sel, presentacion_sel, uso_sel, objetivos)
+
+
+def _subtipos_para_reglas(presentacion_sel, uso_sel, subtipos):
+    return filtrar_subtipos(presentacion_sel, uso_sel, subtipos)
 
 
 def _descripciones_talle_para_reglas(tipo_sel, edad_sel, genero_sel, marca_sel, talles):
@@ -1068,8 +1067,10 @@ def _render_abm_articulos() -> None:
         _clear_session_keys(
             "abm_edad",
             "abm_valor_genero",
+            "abm_presentacion",
             "abm_silueta",
             "abm_objetivo",
+            "abm_subtipo",
             "abm_valor_color",
             "abm_desc_talle",
             "abm_desc_talle_actual",
@@ -1101,6 +1102,7 @@ def _render_abm_articulos() -> None:
     seg_marathon = catalogos.get("segmentaciones_marathon", [])
     vidrieras = catalogos.get("vidrieras", [])
     divisiones = catalogos.get("divisiones", [])
+    subtipos = catalogos.get("subtipos", catalogos.get("canales", []))
 
     c6, c7, c8 = st.columns(3)
     genero_sel = c6.selectbox("Desc. Genero", [None] + catalogos.get("generos", []), format_func=_label, key="abm_genero")
@@ -1122,11 +1124,21 @@ def _render_abm_articulos() -> None:
     valor_genero_sel = c8.selectbox("VALOR", [None] + valores_genero, format_func=_label, key="abm_valor_genero")
 
     c8a, c8b, c8c = st.columns(3)
-    siluetas_filtradas = _siluetas_para_tipo(tipo_sel, catalogos.get("siluetas", []))
-    silueta_sel = c8a.selectbox("Desc. Silueta", [None] + siluetas_filtradas, format_func=_label, key="abm_silueta")
+    presentaciones_catalogo = catalogos.get("presentaciones", catalogos.get("siluetas", []))
+    presentaciones_filtradas = _presentaciones_para_tipo(tipo_sel, presentaciones_catalogo)
+    presentacion_sel = c8a.selectbox("Desc. Presentacion", [None] + presentaciones_filtradas, format_func=_label, key="abm_presentacion")
+    presentacion_actual = _abm_selected_id(presentacion_sel)
+    if st.session_state.get("abm_presentacion_actual") != presentacion_actual:
+        st.session_state["abm_presentacion_actual"] = presentacion_actual
+        _clear_session_keys("abm_objetivo", "abm_subtipo")
     uso_sel = c8b.selectbox("Desc. Uso", [None] + catalogos.get("usos", []), format_func=_label, key="abm_uso")
+    uso_actual = _abm_selected_id(uso_sel)
+    if st.session_state.get("abm_uso_actual") != uso_actual:
+        st.session_state["abm_uso_actual"] = uso_actual
+        _clear_session_keys("abm_objetivo", "abm_subtipo")
     capsula_sel = c8c.selectbox("Desc. Capsula", [None] + capsulas, index=_default_index(capsulas, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_capsula")
-    objetivos_filtrados = _objetivos_para_reglas(tipo_sel, silueta_sel, uso_sel, edad_sel, genero_sel, catalogos.get("objetivos", []))
+    objetivos_filtrados = _objetivos_para_reglas(tipo_sel, presentacion_sel, uso_sel, edad_sel, genero_sel, catalogos.get("objetivos", []))
+    subtipos_filtrados = _subtipos_para_reglas(presentacion_sel, uso_sel, subtipos)
 
     c9, c10, c11 = st.columns(3)
     division_sel = c9.selectbox(
@@ -1144,15 +1156,20 @@ def _render_abm_articulos() -> None:
     seg_marathon_sel = c13.selectbox("Desc. Segmentacion", [None] + seg_marathon, index=_default_index(seg_marathon, ["PENDIENTE", "APLICAR"]), format_func=_label, key="abm_seg_marathon")
     vidriera_sel = c14.selectbox("Desc. Exhibicion", [None] + vidrieras, index=_default_index(vidrieras, ["N/A"]), format_func=_label, key="abm_vidriera")
 
-    c15, c16, c17, c18 = st.columns(4)
+    c15, c16, c17 = st.columns(3)
     anio_sel = c15.selectbox("Desc. Año", [None] + catalogos.get("anios", []), format_func=_label, key="abm_anio")
     if st.session_state.get("abm_objetivo") not in ([None] + objetivos_filtrados):
         st.session_state.pop("abm_objetivo", None)
     objetivo_sel = c16.selectbox("Desc. Objetivo General", [None] + objetivos_filtrados, format_func=_label, key="abm_objetivo")
+    subtipo_options = subtipos_filtrados if len(subtipos_filtrados) == 1 else [None] + subtipos_filtrados
+    if st.session_state.get("abm_subtipo") not in subtipo_options:
+        st.session_state.pop("abm_subtipo", None)
+    subtipo_sel = c17.selectbox("Desc. Subtipo", subtipo_options or [None], format_func=_label, key="abm_subtipo")
+    c18, c19 = st.columns(2)
     color_talle = _color_talle_para_tipo((tipo_sel or {}).get("codigo"), colores)
     valores_color = [c for c in colores if not color_talle or c.get("codigo") == color_talle.get("codigo")]
-    valor_color_sel = c17.selectbox("Desc. Color", [None] + valores_color, format_func=lambda item: "" if not item else item.get("descripcionValor", ""), key="abm_valor_color")
-    c18.text_input("Desc. Color Talle", value=(color_talle or {}).get("descripcion", ""), disabled=True)
+    valor_color_sel = c18.selectbox("Desc. Color", [None] + valores_color, format_func=lambda item: "" if not item else item.get("descripcionValor", ""), key="abm_valor_color")
+    c19.text_input("Desc. Color Talle", value=(color_talle or {}).get("descripcion", ""), disabled=True)
 
     p1, p2, p3 = st.columns(3)
     precio_compra = p1.number_input("Precio compra", min_value=0.0, step=0.01, format="%.2f", key="abm_precio_compra")
@@ -1188,7 +1205,7 @@ def _render_abm_articulos() -> None:
         "Desc. Genero": genero_sel,
         "Desc. Edad": edad_sel,
         "VALOR": valor_genero_sel,
-        "Desc. Silueta": silueta_sel,
+        "Desc. Presentacion": presentacion_sel,
         "Desc. Uso": uso_sel,
         "Desc. Capsula": capsula_sel,
         "Desc. Division": division_sel,
@@ -1199,6 +1216,7 @@ def _render_abm_articulos() -> None:
         "Desc. Exhibicion": vidriera_sel,
         "Desc. Anio": anio_sel,
         "Desc. Objetivo General": objetivo_sel,
+        "Desc. Subtipo": subtipo_sel,
         "Desc. Color Talle": color_talle,
         "Desc. Valor Color": valor_color_sel,
         "Proveedor Habitual": proveedor_sel,
@@ -1345,7 +1363,6 @@ def _render_abm_articulos() -> None:
             st.warning("Todos los talles seleccionados tienen que tener codigo de barra.")
             return
 
-        canal_default = next((c for c in catalogos.get("canales", []) if c.get("codigo") == "C0"), None) or (catalogos.get("canales") or [{}])[0]
         sap_default = _sap_para_tipo(tipo_sel, catalogos.get("sap", []))
         color_data = color_talle or {}
         valor_color_data = valor_color_sel or {}
@@ -1358,11 +1375,11 @@ def _render_abm_articulos() -> None:
             **_selected_payload(sap_default, "grupoSAP", "descripcionGrupoSAP"),
             **_selected_payload(marca_sel, "marca", "descripcionMarca"),
             **_selected_payload(genero_sel, "genero", "descripcionGenero"),
-            **_selected_payload(silueta_sel, "silueta", "descripcionSilueta"),
+            **_selected_payload(presentacion_sel, "presentacion", "descripcionPresentacion"),
             **_selected_payload(uso_sel, "uso", "descripcionUso"),
             "promo": "",
             "descripcionPromo": "",
-            "canal": canal_default.get("codigo", ""),
+            "subtipo": (subtipo_sel or {}).get("codigo", ""),
             **_selected_payload(capsula_sel, "codigoCapsula", "descripcionCapsula"),
             **_selected_payload(division_sel, "codigoDivision", "descripcionDivision"),
             **_selected_payload(temporada_sel, "codigoTemporada", "descripcionTemporada"),
@@ -1658,6 +1675,11 @@ CONFIG_ABM_MODULOS = {
         "codigo_label": "Cod. Marca",
         "descripcion_label": "Markup",
     },
+    "subtipos": {
+        "titulo": "Alta de Subtipos",
+        "codigo_label": "Cod. Subtipo",
+        "descripcion_label": "Desc. Subtipo",
+    },
 }
 
 
@@ -1707,6 +1729,7 @@ def _mensaje_config(modulo, accion):
         "proveedor-marca": "relacion proveedor-marca",
         "objetivos": "objetivo general",
         "markups": "markup",
+        "subtipos": "subtipo",
     }
     nombre = nombres.get(modulo, "registro")
     if accion == "crear":

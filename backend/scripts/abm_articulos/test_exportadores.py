@@ -1,4 +1,10 @@
+import sys
+from pathlib import Path
 from types import SimpleNamespace
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.scripts.abm_articulos.exportadores import (
     ITCC_HEADER,
@@ -24,8 +30,8 @@ def test_columnas_exportadores_abm():
         descripcionMarca="Marca",
         genero="G",
         descripcionGenero="Genero",
-        silueta="S",
-        descripcionSilueta="Silueta",
+        presentacion="S",
+        descripcionPresentacion="Presentacion",
         uso="U",
         descripcionUso="Uso",
         promo="P",
@@ -45,7 +51,7 @@ def test_columnas_exportadores_abm():
         medida="AR",
         codigoGen="H",
         genero2="Hombre",
-        canal="M",
+        subtipo="ST",
         codigoCapsula="CAP",
         descripcionCapsula="Capsula",
         codigoDivision="DIV",
@@ -72,7 +78,7 @@ def test_columnas_exportadores_abm():
     assert ITEC_HEADER.index("Codigo_de_Barra") == 49
     assert ITEC_HEADER.index("Proveedor_Habitual") == 66
     assert ITEC_HEADER.index("CODIGO") == 88
-    assert ITEC_HEADER.index("CANAL") == 93
+    assert ITEC_HEADER.index("Subtipo") == 93
     assert ITEC_HEADER.index("codigoCapsula") == 94
     assert ITEC_HEADER.index("codigoDivision") == 95
     assert ITEC_HEADER.index("codigoTemporada") == 96
@@ -80,13 +86,13 @@ def test_columnas_exportadores_abm():
     assert art_row[49] == "7790001"
     assert art_row[66] == "Proveedor"
     assert art_row[88] == "CM"
-    assert art_row[93] == ""
+    assert art_row[93] == "ST"
     assert art_row[94] == "CAP"
     assert art_row[95] == "DIV"
     assert art_row[96] == "TEMP"
     assert art_row[ITEC_HEADER.index("Grupo")] == ""
     assert art_row[ITEC_HEADER.index("Desc_Grupo")] == ""
-    assert art_row[ITEC_HEADER.index("CANAL")] == ""
+    assert art_row[ITEC_HEADER.index("Subtipo")] == "ST"
     assert len(["LCOC1_", "PERMA", "LCMAR", "1,00", "ART1"]) == len(LCOC_HEADER)
     assert len(["LPMC1_", "ART1", "2,00"]) == len(LPMC_HEADER)
     assert len(fila_comp(complementario, "CEGID1")) == len(ITCC_HEADER)

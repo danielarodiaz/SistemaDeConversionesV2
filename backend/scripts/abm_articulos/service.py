@@ -12,7 +12,6 @@ from backend.models import (
     ProveedorMarca,
     TalleMaestro,
     año,
-    canal,
     capsula,
     color,
     division,
@@ -28,7 +27,8 @@ from backend.models import (
     sap,
     segmentacionMarathon,
     segmentacionProveedor,
-    silueta,
+    presentacion,
+    subtipo,
     temporada,
     tipoProducto,
     uso,
@@ -41,7 +41,7 @@ from backend.utils.cegid_utils import obtener_codigos_cruzar_articulos
 
 CATALOGOS = {
     "anios": (año, "codigoAnio", "descripcionAño"),
-    "canales": (canal, "codigoCanal", "descripcionCanal"),
+    "subtipos": (subtipo, "codigoSubtipo", "descripcionSubtipo"),
     "capsulas": (capsula, "codigoCapsula", "descripcionCapsula"),
     "colores": (color, "codigoColor", "descripcionColor"),
     "divisiones": (division, "codigoDivision", "descripcionDivision"),
@@ -62,7 +62,7 @@ CATALOGOS = {
         "codigoSegmentacionProveedor",
         "descripcionSegmentacionProveedor",
     ),
-    "siluetas": (silueta, "codigoSilueta", "descripcionSilueta"),
+    "presentaciones": (presentacion, "codigoPresentacion", "descripcionPresentacion"),
     "temporadas": (temporada, "codigoTemporada", "descripcionTemporada"),
     "tipos_producto": (tipoProducto, "codigoTipoProducto", "descripcionTipoProducto"),
     "usos": (uso, "codigoUso", "descripcionUso"),
@@ -106,6 +106,8 @@ def obtener_catalogos():
         for nombre, (model, codigo_attr, descripcion_attr) in CATALOGOS.items():
             rows = uow.session.query(model).order_by(getattr(model, codigo_attr)).all()
             data[nombre] = [_catalog_item(row, codigo_attr, descripcion_attr) for row in rows]
+        data["siluetas"] = data.get("presentaciones", [])
+        data["canales"] = data.get("subtipos", [])
 
         proveedores = (
             uow.session.query(Proveedor)
@@ -240,8 +242,8 @@ def crear_borrador(payload, lote_uuid=None):
                 descripcionMarca=_get(base, "descripcionMarca"),
                 genero=_get(base, "genero"),
                 descripcionGenero=_get(base, "descripcionGenero"),
-                silueta=_get(base, "silueta"),
-                descripcionSilueta=_get(base, "descripcionSilueta"),
+                presentacion=_get(base, "presentacion") or _get(base, "silueta"),
+                descripcionPresentacion=_get(base, "descripcionPresentacion") or _get(base, "descripcionSilueta"),
                 uso=_get(base, "uso"),
                 descripcionUso=_get(base, "descripcionUso"),
                 promo=_get(base, "promo"),
@@ -261,7 +263,7 @@ def crear_borrador(payload, lote_uuid=None):
                 medida=_get(talle, "medida"),
                 codigoGen=_get(base, "codigoGen") or _get(talle, "codigoGen"),
                 genero2=_get(base, "genero2") or _get(talle, "genero"),
-                canal=_get(base, "canal"),
+                subtipo=_get(base, "subtipo") or _get(base, "canal"),
                 codigoCapsula=_get(base, "codigoCapsula"),
                 descripcionCapsula=_get(base, "descripcionCapsula"),
                 codigoDivision=_get(base, "codigoDivision"),
@@ -319,8 +321,8 @@ def _serializar_articulo(articulo):
         "Desc Marca": articulo.descripcionMarca,
         "Genero": articulo.genero,
         "Desc Genero": articulo.descripcionGenero,
-        "Silueta": articulo.silueta,
-        "Desc Silueta": articulo.descripcionSilueta,
+        "Presentacion": articulo.presentacion,
+        "Desc Presentacion": articulo.descripcionPresentacion,
         "Uso": articulo.uso,
         "Desc Uso": articulo.descripcionUso,
         "Talle": articulo.talle,
@@ -337,7 +339,7 @@ def _serializar_articulo(articulo):
         "Valor": articulo.medida,
         "Codigo Genero": articulo.codigoGen,
         "Valor Genero": articulo.genero2,
-        "Canal": articulo.canal,
+        "Subtipo": articulo.subtipo,
     }
 
 
