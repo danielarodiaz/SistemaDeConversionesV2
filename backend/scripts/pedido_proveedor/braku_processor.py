@@ -1,3 +1,5 @@
+import re
+
 import pandas as pd
 from backend.utils.pedido_helpers import (
     detectar_conflictos_suc, formatear_precio, resolver_establecimiento,
@@ -26,6 +28,34 @@ def _formatear_referencia(remito_raw: str) -> str:
     return f"0003-{remito.zfill(8)}"
 
 
+def _normalizar_talle(talle_raw) -> str:
+    if talle_raw is None or pd.isna(talle_raw):
+        return ""
+
+    talle = str(talle_raw).strip().replace(",", ".")
+    if not talle or talle.lower() == "nan":
+        return ""
+
+    if re.fullmatch(r"\d+\.0+", talle):
+        return str(int(float(talle)))
+    if re.fullmatch(r"\d+\.\d+", talle):
+        return talle.rstrip("0").rstrip(".")
+    return talle
+
+
+def _extraer_articulo_base(articulo_completo: str, talle_raw) -> str:
+    articulo = str(articulo_completo or "").strip()
+    talle_normalizado = _normalizar_talle(talle_raw)
+    talle_original = str(talle_raw or "").strip()
+
+    for talle in sorted({talle_normalizado, talle_original}, key=len, reverse=True):
+        if talle and articulo.upper().endswith(talle.upper()):
+            articulo_base = articulo[:-len(talle)].strip()
+            return articulo_base or articulo
+
+    return articulo
+
+
 def process_braku_pedido_proveedor(input_path: str, output_path: str) -> dict:
     """
     Procesa un .xlsx de Braku.
@@ -51,13 +81,8 @@ def process_braku_pedido_proveedor(input_path: str, output_path: str) -> dict:
                 descuento = resolver_descuento(row.get('Dto.Com'))
                 descripcion_raw = str(row.get('Descripcion', '')).strip()
                 articulo_completo = str(row.get('Articulo', '')).strip()
-                talle = str(row.get('Talle', '')).strip()
-
-                articulo = articulo_completo
-                # Solo intenta remover el talle si existe
-                if talle:
-                    if articulo_completo.upper().endswith(talle.upper()):
-                        articulo = articulo_completo[:-len(talle)].strip()
+                talle = _normalizar_talle(row.get('Talle', ''))
+                articulo = _extraer_articulo_base(articulo_completo, talle)
 
                 registros_cegid.append({
                     'CAB': 'ZCOC1_',
