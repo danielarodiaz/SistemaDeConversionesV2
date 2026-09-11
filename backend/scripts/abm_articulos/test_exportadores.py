@@ -13,6 +13,7 @@ from backend.scripts.abm_articulos.exportadores import (
     LPMC_HEADER,
     fila_comp,
     fila_itec,
+    _precio_entero,
 )
 
 
@@ -94,5 +95,7 @@ def test_columnas_exportadores_abm():
     assert art_row[ITEC_HEADER.index("Desc_Grupo")] == ""
     assert art_row[ITEC_HEADER.index("Subtipo")] == "ST"
     assert len(["LCOC1_", "PERMA", "LCMAR", "1,00", "ART1"]) == len(LCOC_HEADER)
-    assert len(["LPMC1_", "ART1", "2,00"]) == len(LPMC_HEADER)
+    assert len(["LPMC1_", "ART1", "2"]) == len(LPMC_HEADER)
+    assert _precio_entero("159999.00") == "159999"
+    assert _precio_entero("159999,00") == "159999"
     assert len(fila_comp(complementario, "CEGID1")) == len(ITCC_HEADER)

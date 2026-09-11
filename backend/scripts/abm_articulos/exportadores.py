@@ -123,6 +123,15 @@ def _precio(valor):
     return formatear_precio(valor)
 
 
+def _precio_entero(valor):
+    if valor is None or str(valor).strip() == "":
+        return "0"
+    try:
+        return str(int(round(float(str(valor).replace(",", ".")))))
+    except (TypeError, ValueError):
+        return str(valor).split(",")[0].split(".")[0]
+
+
 def escribir_csv(path, header, rows):
     _validar_columnas(header, rows, os.path.basename(path))
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
@@ -147,7 +156,7 @@ def generar_zip_abm_articulos(articulos, complementarios, precios_compra, precio
         for codigo in codigos_unicos
     ]
     venta_rows = [
-        ["LPMC1_", codigo, _precio(precios_venta.get(codigo))]
+        ["LPMC1_", codigo, _precio_entero(precios_venta.get(codigo))]
         for codigo in codigos_unicos
     ]
 
