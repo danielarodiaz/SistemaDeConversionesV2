@@ -13,6 +13,43 @@ _COLUMNAS_REPORTE = [
     'ColorNom', 'Remito', 'Nombre', 'Cantidad', 'PreUni',
 ]
 
+_COLUMNAS_FILA_REAL = ['Fecha', 'Suc', 'Articulo', 'EAN', 'Remito', 'Cantidad', 'PreUni']
+
+
+def _filtrar_filas_reales(df: pd.DataFrame) -> pd.DataFrame:
+    """Descarta filas de relleno/totales sin datos operativos."""
+    columnas = [col for col in _COLUMNAS_FILA_REAL if col in df.columns]
+    if not columnas:
+        return df
+    mascara = df[columnas].notna().any(axis=1)
+    return df.loc[mascara].copy()
+
+
+def _normalizar_referencia(remito_raw):
+    if pd.isna(remito_raw):
+        return None
+
+    referencia = str(remito_raw).strip()
+    if not referencia or referencia.lower() in ('nan', 'none', 'null'):
+        return None
+
+    if referencia.startswith('R') and len(referencia) == 13:
+        return referencia
+
+    match = re.fullmatch(r'(\d{1,4})-(\d+)', referencia)
+    if match:
+        prefijo = int(match.group(1))
+        numero = int(match.group(2))
+        return f'{prefijo:04d}-{numero:08d}'
+
+    digitos = re.sub(r'\D', '', referencia)
+    if len(digitos) >= 5:
+        prefijo = int(digitos[:4])
+        numero = int(digitos[4:])
+        return f'{prefijo:04d}-{numero:08d}'
+
+    return None
+
 
 def _parsear_almacen(suc_raw: str):
     """Convierte el valor de Suc en el código de almacén CEGID (6 dígitos)."""
@@ -106,6 +143,11 @@ def process_bestsox_pedido_proveedor(input_path, output_path):
         sheets = pd.read_excel(input_path, sheet_name=None)
         frames = list(sheets.values())
         data_all = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        data_all = _filtrar_filas_reales(data_all)
+        if 'Remito' in data_all.columns:
+            data_all['Remito'] = data_all['Remito'].apply(
+                lambda valor: _normalizar_referencia(valor) or valor
+            )
 
         conflictos_suc = detectar_conflictos_suc(data_all, _COLUMNAS_REPORTE)
         ean_vacios = detectar_ean_vacios(data_all, _COLUMNAS_REPORTE)
@@ -143,9 +185,9 @@ def process_bestsox_pedido_proveedor(input_path, output_path):
                     fechas_completadas += 1
 
                 # ── Referencia ────────────────────────────────────────────────
-                referencia = str(row['Remito']).strip()
-                if not (referencia.startswith('R') and len(referencia) == 13):
-                    print(f"Referencia inválida: {referencia}")
+                referencia = _normalizar_referencia(row.get('Remito'))
+                if not referencia:
+                    print(f"Referencia inválida: {row.get('Remito')}")
                     continue
 
                 # ── Código de barras ──────────────────────────────────────────

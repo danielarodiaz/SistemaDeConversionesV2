@@ -1119,7 +1119,9 @@ def _render_abm_articulos() -> None:
         st.session_state["abm_edad_actual"] = edad_actual
         _clear_session_keys("abm_valor_genero", "abm_desc_talle", "abm_desc_talle_actual", "abm_talles_df")
     valor_sugerido_sel = valor_sugerido(genero_sel, edad_sel, valores_genero)
-    if valor_sugerido_sel and st.session_state.get("abm_valor_genero") != valor_sugerido_sel:
+    valor_genero_source = (genero_actual, edad_actual)
+    if valor_sugerido_sel and st.session_state.get("abm_valor_genero_source") != valor_genero_source:
+        st.session_state["abm_valor_genero_source"] = valor_genero_source
         st.session_state["abm_valor_genero"] = valor_sugerido_sel
     valor_genero_sel = c8.selectbox("VALOR", [None] + valores_genero, format_func=_label, key="abm_valor_genero")
 
