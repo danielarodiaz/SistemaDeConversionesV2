@@ -111,7 +111,7 @@ def process_adidas_pedido_proveedor(input_path, output_path):
                 'PRECIO': precio_float,           # float temporal → se formatea al final
                 'ALMACEN': '240001',
                 'ESTABLECIMIENTO': establecimiento,
-                'DESCUENTO': 8.15,
+                'DESCUENTO': 8.45,
                 '_ARTICULO_PARTICION': articulo_limpio,
             })
 
