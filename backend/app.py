@@ -63,6 +63,7 @@ from backend.scripts.pedido_proveedor.procer_procesador   import process_procer_
 from backend.scripts.pedido_proveedor.proyec_processor    import process_proyec_pedido_proveedor
 from backend.scripts.pedido_proveedor.puma_processor      import process_puma_pedido_proveedor
 from backend.scripts.pedido_proveedor.saucony_processor   import process_saucony_pedido_proveedor
+from backend.scripts.pedido_proveedor.taverniti_processor import process_taverniti_pedido_proveedor
 from backend.scripts.pedido_proveedor.topper_processor    import process_topper_pedido_proveedor
 from backend.scripts.pedido_proveedor.winar_processor     import process_winar_pedido_proveedor
 # distrinando: comentado por dependencia de data_service (verificar disponibilidad)
@@ -493,6 +494,7 @@ PROCESSOR_MAP = {
     "proyec":           {"func": process_proyec_pedido_proveedor,     "ext": ".csv"},
     "puma":             {"func": process_puma_pedido_proveedor,     "ext": ".csv"},
     "saucony":          {"func": process_saucony_pedido_proveedor,  "ext": ".csv"},
+    "taverniti":        {"func": process_taverniti_pedido_proveedor,"ext": ".csv"},
     "topper":           {"func": process_topper_pedido_proveedor,   "ext": ".csv"},
     "winar":            {"func": process_winar_pedido_proveedor,    "ext": ".csv"},
     # Propuesta de Compra
@@ -522,6 +524,7 @@ EXPECTED_INPUT_EXT = {
     "proyec":           ".xlsx",
     "puma":             ".csv",
     "saucony":          ".xlsx",
+    "taverniti":        ".xlsx",
     "topper":           ".txt",
     "winar":            ".xlsx",
     "adidas_propuesta": ".xlsx",
@@ -547,6 +550,7 @@ AUDITORIA_PROMOS_PROVIDER_KEYS = {
     "proyec",
     "puma",
     "saucony",
+    "taverniti",
     "topper",
     "winar",
     "adidas_propuesta",
