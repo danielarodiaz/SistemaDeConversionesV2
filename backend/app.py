@@ -524,7 +524,7 @@ EXPECTED_INPUT_EXT = {
     "proyec":           ".xlsx",
     "puma":             ".csv",
     "saucony":          ".xlsx",
-    "taverniti":        ".xlsx",
+    "taverniti":        (".xls", ".xlsx"),
     "topper":           ".txt",
     "winar":            ".xlsx",
     "adidas_propuesta": ".xlsx",
@@ -644,11 +644,13 @@ def process_file(provider_id):
     expected_ext = EXPECTED_INPUT_EXT.get(provider_key)
     if expected_ext:
         files_to_validate = files if provider_key == "sevillanita" else [file]
+        allowed_exts = expected_ext if isinstance(expected_ext, (list, tuple, set)) else (expected_ext,)
         for uploaded_file in files_to_validate:
             _, uploaded_ext = os.path.splitext(uploaded_file.filename)
-            if uploaded_ext.lower() != expected_ext.lower():
+            if uploaded_ext.lower() not in [ext.lower() for ext in allowed_exts]:
+                expected_label = " o ".join(ext.upper() for ext in allowed_exts)
                 return jsonify({
-                    "error": f"El tipo de archivo no es el esperado. Por favor, procesá un archivo {expected_ext.upper()}"
+                    "error": f"El tipo de archivo no es el esperado. Por favor, procesá un archivo {expected_label}"
                 }), 400
 
     input_path = None

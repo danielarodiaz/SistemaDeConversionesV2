@@ -73,11 +73,17 @@ def _referencia_desde_remito(remito_raw) -> str:
 
 
 def _descuento_para_exportacion(valor) -> float:
-    descuento = resolver_descuento(valor)
+    texto = str(valor or '').strip()
+    if '%' in texto:
+        texto = texto.replace('%', '').replace(' ', '').replace(',', '.')
+        texto = re.sub(r'[^0-9.\-]', '', texto)
+        descuento = float(texto or 0)
+    else:
+        descuento = resolver_descuento(valor)
     if -1 < descuento < 1 and descuento != 0:
         descuento *= 100
     descuento = abs(descuento)
-    return int(descuento) if descuento.is_integer() else descuento
+    return int(descuento) if float(descuento).is_integer() else descuento
 
 
 def _parsear_precio(valor) -> float:
@@ -95,7 +101,15 @@ def process_taverniti_pedido_proveedor(input_path, output_path):
     Genera el CSV para CEGID y retorna el informe de auditoría.
     """
     try:
-        sheets = pd.read_excel(input_path, sheet_name=None, dtype={'Ean': str, 'EAN': str})
+        try:
+            sheets = pd.read_excel(input_path, sheet_name=None, dtype={'Ean': str, 'EAN': str})
+        except ImportError as e:
+            if str(input_path).lower().endswith('.xls') and 'xlrd' in str(e).lower():
+                raise RuntimeError(
+                    "No se pudo leer el archivo .xls porque falta instalar xlrd en el servidor. "
+                    "Instalá las dependencias actualizadas y volvé a procesarlo."
+                ) from e
+            raise
         frames = [df for df in sheets.values() if not df.empty]
         if not frames:
             raise RuntimeError("El archivo no contiene datos válidos.")
@@ -154,7 +168,7 @@ def process_taverniti_pedido_proveedor(input_path, output_path):
                 ))
 
             except Exception as e:
-                print(f"❌ Error en fila {i}: {e}")
+                print(f"Error en fila {i}: {e}")
                 continue
 
         if not registros_cegid:
