@@ -13,6 +13,7 @@ import sys
 import traceback
 import uuid
 from datetime import datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from dotenv import load_dotenv
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -969,7 +970,11 @@ def _sap_para_tipo(tipo_sel, sap_items):
 def _redondear_a_999(valor):
     if not valor:
         return 0
-    return int(math.ceil((float(valor) + 1) / 1000) * 1000 - 1)
+    entero = int(Decimal(str(valor)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    base = (entero // 1000) * 1000
+    if entero % 1000 >= 500:
+        return base + 999
+    return max(base - 1, 0)
 
 
 def _presentaciones_para_tipo(tipo_sel, presentaciones):
