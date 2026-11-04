@@ -62,6 +62,7 @@ from backend.scripts.pedido_proveedor.leuru_processor     import process_leuru_p
 from backend.scripts.pedido_proveedor.procer_procesador   import process_procer_pedido_proveedor
 from backend.scripts.pedido_proveedor.proyec_processor    import process_proyec_pedido_proveedor
 from backend.scripts.pedido_proveedor.puma_processor      import process_puma_pedido_proveedor
+from backend.scripts.pedido_proveedor.rocotex_processor   import process_rocotex_pedido_proveedor
 from backend.scripts.pedido_proveedor.saucony_processor   import process_saucony_pedido_proveedor
 from backend.scripts.pedido_proveedor.taverniti_processor import process_taverniti_pedido_proveedor
 from backend.scripts.pedido_proveedor.topper_processor    import process_topper_pedido_proveedor
@@ -493,6 +494,7 @@ PROCESSOR_MAP = {
     "procer":           {"func": process_procer_pedido_proveedor,    "ext": ".csv"},
     "proyec":           {"func": process_proyec_pedido_proveedor,     "ext": ".csv"},
     "puma":             {"func": process_puma_pedido_proveedor,     "ext": ".csv"},
+    "rocotex":          {"func": process_rocotex_pedido_proveedor,  "ext": ".csv"},
     "saucony":          {"func": process_saucony_pedido_proveedor,  "ext": ".csv"},
     "taverniti":        {"func": process_taverniti_pedido_proveedor,"ext": ".csv"},
     "topper":           {"func": process_topper_pedido_proveedor,   "ext": ".csv"},
@@ -523,6 +525,7 @@ EXPECTED_INPUT_EXT = {
     "procer":           ".xlsx",
     "proyec":           ".xlsx",
     "puma":             ".csv",
+    "rocotex":          ".xlsx",
     "saucony":          ".xlsx",
     "taverniti":        (".xls", ".xlsx"),
     "topper":           ".txt",
@@ -549,6 +552,7 @@ AUDITORIA_PROMOS_PROVIDER_KEYS = {
     "procer",
     "proyec",
     "puma",
+    "rocotex",
     "saucony",
     "taverniti",
     "topper",

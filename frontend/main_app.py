@@ -109,6 +109,7 @@ PROVIDERS = {
     "procer":           {"name": "Procer",      "logo": "logo_procer.png",      "cat": "Pedido Proveedor",   "ext": ".xlsx"},
     "proyec":           {"name": "Proyec",      "logo": "logo_proyec.png",      "cat": "Pedido Proveedor",   "ext": ".xlsx"},
     "puma":             {"name": "Puma",        "logo": "logo_puma.png",        "cat": "Pedido Proveedor",   "ext": ".csv"},
+    "rocotex":          {"name": "Rocotex",     "logo": "logo_underArmour.png", "cat": "Pedido Proveedor",   "ext": ".xlsx"},
     "saucony":          {"name": "Saucony",     "logo": "logo_saucony.png",     "cat": "Pedido Proveedor",   "ext": ".xlsx"},
     "taverniti":        {"name": "Taverniti",   "logo": "logo_taverniti.png",   "cat": "Pedido Proveedor",   "ext": ".xls/.xlsx"},
     "topper":           {"name": "Topper",      "logo": "logo_topper.png",      "cat": "Pedido Proveedor",   "ext": ".txt"},
