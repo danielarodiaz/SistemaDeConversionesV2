@@ -1,12 +1,12 @@
 # 🔄 Sistema de Conversiones V2
 
-Sistema web de conversiones de unidades (temperatura, longitud, peso, entre otras), desarrollado como la segunda versión de un conversor inicial. La principal mejora respecto a la versión anterior es el **desacoplamiento en capas de frontend y backend**, junto con la incorporación de **Docker Compose** para facilitar el despliegue y la ejecución del entorno completo.
+Sistema web de conversiones de archivos (txt, xlsx, csv, entre otras), desarrollado como la segunda versión de un conversor inicial. La principal mejora respecto a la versión anterior es el **desacoplamiento en capas de frontend y backend**, junto con la incorporación de **Docker Compose** para facilitar el despliegue y la ejecución del entorno completo.
 
 ---
 
 ## 📋 Descripción
 
-Esta aplicación permite al usuario realizar conversiones entre distintas unidades de medida a través de una interfaz web. La lógica de conversión se encuentra en el backend, mientras que el frontend se comunica con él mediante una API REST.
+Esta aplicación permite al usuario realizar conversiones de archivos a través de una interfaz web. La lógica de conversión se encuentra en el backend, mientras que el frontend se comunica con él mediante una API REST.
 
 ---
 
@@ -91,9 +91,9 @@ El backend expone una API REST con endpoints para cada tipo de conversión. Algu
 
 | Método | Endpoint              | Descripción                            |
 |--------|-----------------------|----------------------------------------|
-| GET    | `/api/temperatura`    | Conversiones de temperatura (°C, °F, K) |
-| GET    | `/api/longitud`       | Conversiones de longitud (m, km, mi, ft) |
-| GET    | `/api/peso`           | Conversiones de peso (kg, g, lb, oz)   |
+| GET    | `/api/txt`    | Conversiones de archivos en formato txt |
+| GET    | `/api/xlsx`       | Conversiones de archivos en formato xlsx |
+| GET    | `/api/csv`           | Conversiones de archivos en formato csv |
 
 > Consulta la documentación interna o el código del backend para ver todos los endpoints disponibles y sus parámetros.
 
