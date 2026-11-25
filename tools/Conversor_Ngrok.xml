@@ -1,0 +1,10 @@
+<service>
+  <id>Conversor_Ngrok</id>
+  <name>Conversor Ngrok (Tunnel)</name>
+  <description>Sistema de Conversiones V2 Ngrok Tunnel Service</description>
+  <executable>%BASE%\ngrok.exe</executable>
+  <arguments>http --domain=worst-overall-cling.ngrok-free.dev --authtoken=3Da958mRXE1w7H7rC7ebH8eaKzy_411iqiHmna9YtzBpzsNyi 5000</arguments>
+  <logmode>roll</logmode>
+  <workingdirectory>%BASE%</workingdirectory>
+  <onfailure action="restart" delay="10 sec"/>
+</service>

@@ -1,0 +1,195 @@
+import pandas as pd
+import os
+import re
+from datetime import datetime
+from backend.utils.pedido_helpers import detectar_ean_vacios, particionar_por_referencia_y_articulo
+
+def parsear_fecha(fecha_str):
+    meses_es = {
+        "ene": "01", "ene.": "01",
+        "feb": "02", "feb.": "02",
+        "mar": "03", "mar.": "03",
+        "abr": "04", "abr.": "04",
+        "may": "05", "may.": "05",
+        "jun": "06", "jun.": "06",
+        "jul": "07", "jul.": "07",
+        "ago": "08", "ago.": "08",
+        "sep": "09", "sep.": "09", "sept": "09", "sept.": "09",
+        "set": "09", "set.": "09", "septiembre": "09",
+        "oct": "10", "oct.": "10",
+        "nov": "11", "nov.": "11",
+        "dic": "12", "dic.": "12"
+    }
+
+    try:
+        fecha_str = str(fecha_str).strip().lower()
+
+        if fecha_str.startswith("w"):
+            fecha_str = fecha_str.split(" - ")[-1]
+
+        partes = fecha_str.split()
+
+        if len(partes) == 3 and partes[1] in meses_es:
+            dia = partes[0].zfill(2)
+            mes = meses_es[partes[1]]
+            anio = partes[2]
+
+            return f"{dia}{mes}{anio[-2:]}"
+
+    except Exception as e:
+        print(f"⚠️ Error parseando fecha: {fecha_str} → {e}")
+
+    print(f"⚠️ Formato inesperado en la fecha de entrega: {fecha_str}")
+    return None
+
+
+def _valor_limpio(value):
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def _fecha_entrega_raw(row):
+    for columna in ('Requested Delivery Date', 'Requested On Shelf Date(s)'):
+        valor = _valor_limpio(row.get(columna, ""))
+        if valor and valor.lower() != "nan":
+            return columna, valor
+    return 'Requested Delivery Date', ""
+
+
+def _mensaje_fecha_no_reconocida(columna, valor, fila=None):
+    fila_txt = f" en la fila {fila}" if fila is not None else ""
+    return (
+        f"No se pudo generar la descarga porque la columna '{columna}' tiene una fecha "
+        f"con un formato que el procesador no reconoce{fila_txt}: '{valor}'. "
+        "Modificá esa fecha en el archivo o avisá a sistemas para agregar esta variante."
+    )
+
+
+def formatear_talle(talle):
+    talle = str(talle).strip().upper()
+    
+    if talle == "NS":
+        return "U"
+    
+    # Reemplazar nXL por la cantidad de X correspondiente
+    if re.match(r"^\d+XL$", talle):
+        num = int(talle[0])
+        return "X" * num + "L"
+    # Reemplazar nXS por la cantidad de X correspondiente
+    if re.match(r"^\d+XS$", talle):
+        num = int(talle[0])
+        return "X" * num + "S"
+    # Reemplazar "-" por ".5" solo si es un formato como "7-"
+    if re.match(r"^\d+-$", talle):
+        return talle.replace("-", ".5")
+
+    return talle
+
+def process_adidas_propuesta_compra(input_path, output_path):
+    try:
+        data = pd.read_excel(input_path, skiprows=4, dtype=str)
+        ean_vacios = detectar_ean_vacios(
+            data,
+            [
+                'SAP Order number', 'Order creation date', 'Requested Delivery Date',
+                'Requested On Shelf Date(s)', 'Article ID', 'Size', 'EAN',
+                'Total quantity', 'Rejected', 'LP', 'Sold To',
+            ],
+        )
+        transformed_data = []
+        errores_fechas = []
+
+        for idx, row in data.iterrows():
+            try:
+                referencia_interna = str(row.get('SAP Order number', '')).strip()
+                if not referencia_interna or referencia_interna.lower() == 'nan':
+                    continue
+
+                total = row.get('Total quantity', '0')
+                rechazado = row.get('Rejected', '0')
+
+                try:
+                    cantidad = int(float(total)) - int(float(rechazado))
+                except ValueError:
+                    continue
+
+                if cantidad <= 0:
+                    continue
+
+                fecha_entrega_col, fecha_entrega_raw = _fecha_entrega_raw(row)
+
+                fecha_entrega = parsear_fecha(fecha_entrega_raw)
+
+                fecha_doc = _valor_limpio(row.get('Order creation date', ''))
+                fecha_doc_parseada = parsear_fecha(fecha_doc)
+                if not fecha_entrega:
+                    errores_fechas.append(_mensaje_fecha_no_reconocida(fecha_entrega_col, fecha_entrega_raw, idx + 6))
+                    print(f"⚠️ Fila omitida por fecha de entrega no reconocida: {fecha_entrega_raw}")
+                    continue
+                if not fecha_doc_parseada:
+                    errores_fechas.append(_mensaje_fecha_no_reconocida('Order creation date', fecha_doc, idx + 6))
+                    print(f"⚠️ Fila omitida por fecha de documento no reconocida: {fecha_doc}")
+                    continue
+
+                ean = str(row.get('EAN', '')).strip()
+                if not ean or ean.lower() == 'nan':
+                    cod_art = str(row.get('Article ID', '')).strip().replace(" ", "")
+                    talle = formatear_talle(row.get('Size', ''))
+                    ean = f"T{cod_art}{talle}"
+
+                precio = str(row.get('LP', '0')).strip().replace('.', ',')
+                establecimiento = '002' if str(row.get('Sold To', '')).strip() == '7300000658' else '001'
+
+                transformed_row = {
+                    "CAB": "PDCC1_",
+                    "REFERENCIA INTERNA": referencia_interna,
+                    "FECHA DOC": fecha_doc_parseada,
+                    "COD PROVEEDOR": "ADIDA",
+                    "CODIGO BARRAS": ean,
+                    "CANTIDAD": cantidad,
+                    "PRECIO": precio,
+                    "ALMACEN": "240001",
+                    "ESTABLECIMIENTO": establecimiento,
+                    "FECHA ENTREGA": fecha_entrega,
+                    "_ARTICULO_PARTICION": str(row.get('Article ID', '')).strip().replace(" ", ""),
+                }
+
+                transformed_data.append(transformed_row)
+            except Exception as e:
+                print(f"⚠️ Error procesando fila: {e}")
+                continue
+
+        if transformed_data:
+            transformed_df = pd.DataFrame(transformed_data)
+
+            # ✅ Ordenar por fecha de entrega (ddmmAA → orden cronológico)
+            transformed_df["FECHA ENTREGA"] = transformed_df["FECHA ENTREGA"].astype(str)
+            transformed_df["orden"] = transformed_df["FECHA ENTREGA"].apply(lambda x: x[4:6] + x[2:4] + x[0:2])
+            transformed_df = transformed_df.sort_values(by="orden").drop(columns=["orden"])
+
+            transformed_df = particionar_por_referencia_y_articulo(
+                transformed_df,
+                articulo_col="_ARTICULO_PARTICION",
+                max_lineas=100,
+                sufijo_template="{ref}/{lote}",
+                columnas_drop=["_ARTICULO_PARTICION"],
+            )
+                
+            # Exportar
+            transformed_df.to_csv(output_path, index=False, sep="|", encoding="utf-8-sig")
+            print(f"✅ Archivo generado correctamente en: {output_path}")
+            return {"output_path": output_path, "ean_vacios": ean_vacios}
+
+        else:
+            print("⚠️ No se generaron datos válidos para exportar.")
+            if errores_fechas:
+                raise RuntimeError(errores_fechas[0])
+            raise RuntimeError(
+                "No se generaron filas válidas para importar. Revisá que el archivo tenga cantidades "
+                "mayores a cero y fechas de documento/entrega reconocibles."
+            )
+
+    except Exception as e:
+        print(f"❌ Error al procesar el archivo: {e}")
+        raise RuntimeError(f"No se pudo procesar Adidas Propuesta. {e}")

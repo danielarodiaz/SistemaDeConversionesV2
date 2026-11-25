@@ -1,0 +1,425 @@
+import os
+from backend.services.cegid_connector import conectar_cegid
+import pandas as pd
+from typing import Dict, List, Tuple
+
+# Si DISABLE_CEGID=true en el .env, todas las consultas retornan valores vacíos/mock
+# Útil para desarrollo sin acceso al servidor CEGID.
+def _cegid_deshabilitado() -> bool:
+    return os.getenv("DISABLE_CEGID", "false").lower() == "true"
+
+def obtener_codigo_barra(modelo, talle, color=None):
+    """
+    Dado un modelo y talle, devuelve el código de barras desde CEGID.
+    Si DISABLE_CEGID=true, retorna None sin intentar conexión.
+    """
+    if _cegid_deshabilitado():
+        return None
+    return obtener_codigo_barra_flexible(modelo, talle, incluir_color=bool(color), color=color)
+
+def obtener_codigo_barra_flexible(codigo_articulo, talle, incluir_color=False, color=None):
+    """
+    Dado un código de artículo y un talle, devuelve el código de barras correspondiente.
+    Si `incluir_color` es True, intenta construir el código como modelo-color.
+    Si es False, usa el código directamente como GA_CODEARTICLE.
+    """
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return None
+
+        cursor = conexion.cursor()
+
+        if incluir_color and color:
+            codigo_compuesto = f"{codigo_articulo}-{color}"
+        else:
+            codigo_compuesto = codigo_articulo
+
+        query = """
+            SELECT GA_CODEBARRE
+            FROM ARTICLE
+            INNER JOIN DIMENSION ON GA_CODEDIM1=GDI_CODEDIM AND GA_GRILLEDIM1=GDI_GRILLEDIM
+            WHERE GA_CODEARTICLE = ?
+            AND GDI_DIMORLI = ?
+        """
+
+        cursor.execute(query, (codigo_compuesto, str(talle)))
+        result = cursor.fetchone()
+
+        return result[0] if result else None
+
+    except Exception as e:
+        print(f"❌ Error obteniendo código de barra en CEGID: {e}")
+        return None
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
+def obtener_precios_cegid_por_cod_prov(cod_prov):
+    if _cegid_deshabilitado():
+        return pd.DataFrame(columns=[
+            'IDArticulo', 'CodigoArticulo', 'NombreArticulo', 'PrecioCompra', 'PrecioVenta'
+        ])
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return pd.DataFrame()
+
+        cursor = conexion.cursor()
+
+        # Consulta para obtener todos los artículos y precios del proveedor
+        query = '''
+            SELECT 
+                a.GA_ARTICLE as IDArticulo,
+                a.GA_CODEARTICLE as CodigoArticulo,
+                a.GA_LIBELLE as NombreArticulo,
+                t_costo.GF_PRIXUNITAIRE as PrecioCompra,
+                t_venta.GF_PRIXUNITAIRE as PrecioVenta
+            FROM ARTICLE a
+            INNER JOIN TARIF t_costo ON a.GA_ARTICLE = t_costo.GF_ARTICLE 
+                AND t_costo.GF_LIBELLE LIKE '%PRECIOS COSTO MARATHON-PERIODO BASE%'
+            INNER JOIN TARIF t_venta ON a.GA_ARTICLE = t_venta.GF_ARTICLE 
+                AND t_venta.GF_LIBELLE LIKE '%Precios Marathon-PERIODO BASE%'
+            WHERE a.GA_FOURNPRINC = ?
+                AND t_costo.GF_PRIXUNITAIRE IS NOT NULL
+                AND t_venta.GF_PRIXUNITAIRE IS NOT NULL
+        '''
+        cursor.execute(query, (cod_prov,))
+        resultados = cursor.fetchall()
+
+        if resultados:
+            try:
+                df = pd.DataFrame({
+                    'IDArticulo': [r[0] for r in resultados], 
+                    'CodigoArticulo': [r[1] for r in resultados],  
+                    'NombreArticulo': [r[2] for r in resultados],
+                    'PrecioCompra': [float(r[3]) for r in resultados],
+                    'PrecioVenta': [float(r[4]) for r in resultados]
+                })
+                return df
+            except Exception as e:
+                raise
+        else:
+            return pd.DataFrame(columns=['IDArticulo', 'CodigoArticulo', 'NombreArticulo', 'PrecioCompra', 'PrecioVenta'])
+
+    except Exception as e:
+        return pd.DataFrame()
+
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
+def obtener_precio_venta_y_promo_por_codigo(codigo_articulo):
+    """
+    Obtiene el precio de venta, el campo PROMO (GA_LIBREART6) y el campo MARCA (GA_LIBREART2) para un código de artículo específico.
+    Esta función es específica para el procesador de mayoristas.
+    """
+    if _cegid_deshabilitado():
+        return {
+            'precio_venta': 0.0,
+            'promo': '',
+            'marca': ''
+        }
+    
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return {'precio_venta': 0.0, 'promo': ''}
+
+        cursor = conexion.cursor()
+
+        # Consulta para obtener precio de venta y campo PROMO por código de artículo
+        query = '''
+            SELECT 
+                t_venta.GF_PRIXUNITAIRE as PrecioVenta,
+                a.GA_LIBREART6 as Promo,
+                a.GA_LIBREART2 as Marca
+            FROM ARTICLE a
+            INNER JOIN TARIF t_venta ON a.GA_ARTICLE = t_venta.GF_ARTICLE 
+                AND t_venta.GF_LIBELLE LIKE '%Precios Marathon-PERIODO BASE%'
+            WHERE a.GA_CODEARTICLE = ?
+                AND t_venta.GF_PRIXUNITAIRE IS NOT NULL
+        '''
+        
+        cursor.execute(query, (codigo_articulo,))
+        resultado = cursor.fetchone()
+        
+        if resultado:
+            precio_venta = float(resultado[0]) if resultado[0] else 0.0
+            promo = str(resultado[1]) if resultado[1] else ''
+            marca = str(resultado[2]) if resultado[2] else ''
+            return {
+                'precio_venta': precio_venta,
+                'promo': promo,
+                'marca': marca
+            }
+        else:
+            return {'precio_venta': 0.0, 'promo': '', 'marca': ''}
+
+    except Exception as e:
+        return {'precio_venta': 0.0, 'promo': '', 'marca': ''}
+
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
+def obtener_costos_por_codigos_barras(codigos_barras: List[str]) -> Dict[str, Tuple[str, float, str]]:
+    """
+    Dado un listado de códigos de barras, devuelve un diccionario:
+      { codigo_barra: (CodigoArticulo, PrecioCompra, Descripcion) }
+
+    - Si está en Render, retorna dict vacío.
+    - Omite códigos de barra vacíos o nulos.
+    """
+    if not codigos_barras:
+        return {}
+
+    valores = [str(cb).strip() for cb in codigos_barras if cb is not None and str(cb).strip() != ""]
+    valores = list(dict.fromkeys(valores))
+
+    if not valores:
+        return {}
+
+    if _cegid_deshabilitado():
+        return {}
+
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return {}
+
+        cursor = conexion.cursor()
+
+        resultados: Dict[str, Tuple[str, float, str]] = {}
+        chunk_size = 900
+        for i in range(0, len(valores), chunk_size):
+            chunk = valores[i:i+chunk_size]
+            placeholders = ",".join(["?"] * len(chunk))
+            query = f'''
+                SELECT 
+                    a.GA_CODEBARRE as CodigoBarra,
+                    a.GA_CODEARTICLE as CodigoArticulo,
+                    t_costo.GF_PRIXUNITAIRE as PrecioCompra,
+                    a.GA_LIBELLE as Descripcion
+                FROM ARTICLE a
+                INNER JOIN ARTICLE a_padre ON a.GA_CODEARTICLE = a_padre.GA_CODEARTICLE 
+                    AND LTRIM(SUBSTRING(a_padre.GA_ARTICLE, LEN(a.GA_CODEARTICLE) + 1, LEN(a_padre.GA_ARTICLE))) LIKE 'X%'
+                INNER JOIN TARIF t_costo ON a_padre.GA_ARTICLE = t_costo.GF_ARTICLE 
+                    AND t_costo.GF_LIBELLE LIKE '%PRECIOS COSTO MARATHON-PERIODO BASE%'
+                WHERE a.GA_CODEBARRE IN ({placeholders})
+            '''
+            cursor.execute(query, chunk)
+            rows = cursor.fetchall()
+
+            for r in rows:
+                try:
+                    codigo_barra = str(r[0]).strip()
+                    codigo_articulo = str(r[1]).strip()
+                    precio_compra = float(r[2]) if r[2] is not None else None
+                    descripcion = str(r[3]).strip() if r[3] is not None else ""
+                    if codigo_barra and codigo_articulo and precio_compra is not None:
+                        resultados[codigo_barra] = (codigo_articulo, precio_compra, descripcion)
+                except Exception:
+                    continue
+
+        return resultados
+
+    except Exception:
+        return {}
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
+def obtener_articulos_por_codigos_barras(codigos_barras: List[str]) -> Dict[str, str]:
+    """
+    Devuelve {codigo_barra: codigo_articulo} para resolver archivos que solo traen EAN.
+    """
+    if not codigos_barras:
+        return {}
+
+    valores = [str(cb).strip() for cb in codigos_barras if cb is not None and str(cb).strip()]
+    valores = list(dict.fromkeys(valores))
+
+    if not valores or _cegid_deshabilitado():
+        return {}
+
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return {}
+
+        cursor = conexion.cursor()
+        resultados: Dict[str, str] = {}
+        chunk_size = 900
+        for i in range(0, len(valores), chunk_size):
+            chunk = valores[i:i + chunk_size]
+            placeholders = ",".join(["?"] * len(chunk))
+            query = f"""
+                SELECT GA_CODEBARRE, GA_CODEARTICLE
+                FROM ARTICLE
+                WHERE GA_CODEBARRE IN ({placeholders})
+            """
+            cursor.execute(query, chunk)
+            for row in cursor.fetchall():
+                codigo_barra = str(row[0]).strip() if row[0] is not None else ""
+                codigo_articulo = str(row[1]).strip() if row[1] is not None else ""
+                if codigo_barra and codigo_articulo:
+                    resultados.setdefault(codigo_barra, codigo_articulo)
+
+        return resultados
+
+    except Exception as e:
+        print(f"Error obteniendo articulos por codigo de barras en CEGID: {e}")
+        return {}
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
+def obtener_promos_por_codigos_articulo(codigos_articulo: List[str]) -> Dict[str, dict]:
+    """
+    Consulta GA_LIBREART6 en ARTICLE y devuelve solo articulos con promo distinta de N/A.
+    """
+    if not codigos_articulo:
+        return {}
+
+    valores = [str(cod).strip() for cod in codigos_articulo if cod is not None and str(cod).strip()]
+    valores = list(dict.fromkeys(valores))
+
+    if not valores or _cegid_deshabilitado():
+        return {}
+
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return {}
+
+        cursor = conexion.cursor()
+        resultados: Dict[str, dict] = {}
+        chunk_size = 900
+        for i in range(0, len(valores), chunk_size):
+            chunk = valores[i:i + chunk_size]
+            placeholders = ",".join(["?"] * len(chunk))
+            query = f"""
+                SELECT DISTINCT
+                    GA_CODEARTICLE,
+                    GA_LIBELLE,
+                    GA_LIBREART6
+                FROM ARTICLE
+                WHERE GA_CODEARTICLE IN ({placeholders})
+                  AND NULLIF(LTRIM(RTRIM(GA_LIBREART6)), '') IS NOT NULL
+                  AND UPPER(LTRIM(RTRIM(GA_LIBREART6))) <> 'N/A'
+            """
+            cursor.execute(query, chunk)
+            for row in cursor.fetchall():
+                codigo_articulo = str(row[0]).strip() if row[0] is not None else ""
+                descripcion = str(row[1]).strip() if row[1] is not None else ""
+                promo = str(row[2]).strip() if row[2] is not None else ""
+                if codigo_articulo and promo:
+                    resultados.setdefault(
+                        codigo_articulo,
+                        {
+                            "codigo_articulo": codigo_articulo,
+                            "descripcion": descripcion,
+                            "promo": promo,
+                        },
+                    )
+
+        return resultados
+
+    except Exception as e:
+        print(f"Error obteniendo promos por articulo en CEGID: {e}")
+        return {}
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
+def obtener_codigos_cruzar_articulos(pares_codigo_barra: List[Tuple[str, str]]) -> Dict[Tuple[str, str], str]:
+    """
+    Cruza codigo de articulo + codigo de barra contra CEGID y devuelve GA_ARTICLE.
+    Para codigo_barra vacio busca la fila padre del articulo.
+    Si CEGID no esta disponible o no hay match, el caller debe aplicar el fallback.
+    """
+    if not pares_codigo_barra:
+        return {}
+
+    pares = []
+    vistos = set()
+    for codigo, codigo_barra in pares_codigo_barra:
+        codigo_limpio = str(codigo or "").strip()
+        barra_limpia = str(codigo_barra or "").strip()
+        clave = (codigo_limpio, barra_limpia)
+        if codigo_limpio and clave not in vistos:
+            pares.append(clave)
+            vistos.add(clave)
+
+    if not pares or _cegid_deshabilitado():
+        return {}
+
+    try:
+        conexion = conectar_cegid()
+        if not conexion:
+            return {}
+
+        cursor = conexion.cursor()
+        resultados: Dict[Tuple[str, str], str] = {}
+        query_hijo = """
+            SELECT GA_ARTICLE
+            FROM MARAPROD24.dbo.ARTICLE
+            WHERE GA_CODEARTICLE = ?
+              AND GA_CODEBARRE = ?
+        """
+        query_padre = """
+            SELECT TOP 1 GA_ARTICLE
+            FROM MARAPROD24.dbo.ARTICLE
+            WHERE GA_CODEARTICLE = ?
+              AND (GA_CODEBARRE IS NULL OR LTRIM(RTRIM(GA_CODEBARRE)) = '')
+            ORDER BY
+              CASE
+                WHEN LTRIM(RTRIM(REPLACE(REPLACE(GA_ARTICLE, GA_CODEARTICLE, ''), 'X', ''))) = '' THEN 0
+                ELSE 1
+              END,
+              GA_ARTICLE
+        """
+        for codigo, codigo_barra in pares:
+            if codigo_barra:
+                cursor.execute(query_hijo, (codigo, codigo_barra))
+            else:
+                cursor.execute(query_padre, (codigo,))
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                resultados[(codigo, codigo_barra)] = str(row[0]).strip()
+        return resultados
+
+    except Exception as e:
+        print(f"Error cruzando articulos contra CEGID: {e}")
+        return {}
+    finally:
+        if 'conexion' in locals() and conexion:
+            conexion.close()
+
+
+def obtener_costo_por_modelo(codigo_articulo):
+    """Busca el costo base del modelo (sin depender del EAN)"""
+    try:
+        conexion = conectar_cegid()
+        if not conexion: return None
+        cursor = conexion.cursor()
+        query = '''
+            SELECT t_costo.GF_PRIXUNITAIRE
+            FROM ARTICLE a
+            INNER JOIN TARIF t_costo ON a.GA_ARTICLE = t_costo.GF_ARTICLE 
+                AND t_costo.GF_LIBELLE LIKE '%PRECIOS COSTO MARATHON-PERIODO BASE%'
+            WHERE a.GA_CODEARTICLE = ?
+        '''
+        cursor.execute(query, (codigo_articulo,))
+        res = cursor.fetchone()
+        return float(res[0]) if res else None
+    except Exception: return None
+    finally:
+        if 'conexion' in locals() and conexion: conexion.close()

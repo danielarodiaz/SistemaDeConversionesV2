@@ -1,0 +1,114 @@
+import pandas as pd
+import re
+from backend.utils.pedido_helpers import (
+    detectar_conflictos_suc, formatear_precio, resolver_establecimiento,
+    resolver_descuento, armar_item_auditoria, ejecutar_auditoria_y_exportar,
+    detectar_ean_vacios,
+)
+
+_COLUMNAS_REPORTE = [
+    'Fecha', 'Suc', 'EAN', 'Descripcion',
+    'Remito', 'Empresa', 'Cantidad', 'PreUni', 'Dto.Com',
+]
+
+
+def _formatear_remito(valor) -> str:
+    """Convierte el Remito a formato NNNN-NNNNNNNN (12 dígitos con guion)."""
+    if pd.isna(valor):
+        return ''
+    valor_str = ''.join(ch for ch in str(valor).strip() if ch.isdigit())
+    if not valor_str:
+        return ''
+    valor_str = valor_str.zfill(12)
+    return f'{valor_str[:4]}-{valor_str[4:]}'
+
+
+def _codigo_excel_a_str(valor) -> str:
+    """Normaliza codigos leidos desde Excel sin conservar el .0 artificial."""
+    if pd.isna(valor):
+        return ''
+    if isinstance(valor, float) and valor.is_integer():
+        return str(int(valor))
+    texto = str(valor).strip()
+    if re.fullmatch(r'\d+\.0', texto):
+        return texto[:-2]
+    return texto
+
+
+def process_johnfoos_pedido_proveedor(input_path, output_path):
+    """
+    Procesa un .xlsx de John Foos.
+    Genera el CSV para CEGID y retorna el informe de auditoría.
+    """
+    try:
+        data = pd.read_excel(
+            input_path,
+            converters={
+                'EAN': _codigo_excel_a_str,
+                'Articulo': _codigo_excel_a_str,
+                'Talle': _codigo_excel_a_str,
+            },
+        )
+        conflictos_suc = detectar_conflictos_suc(data, _COLUMNAS_REPORTE)
+        ean_vacios = detectar_ean_vacios(data, _COLUMNAS_REPORTE)
+
+        registros_cegid = []
+        items_auditoria = []
+
+        for i, row in data.iterrows():
+            try:
+                fecha_str = pd.to_datetime(row['Fecha'], dayfirst=True).strftime('%d%m%y')
+                referencia_formateada = _formatear_remito(row.get('Remito'))
+                codigo_barras = _codigo_excel_a_str(row['EAN'])
+                cantidad = int(row['Cantidad'])
+                precio_float = round(float(row['PreUni']), 2)
+                establecimiento = resolver_establecimiento(row.get('Empresa', ''))
+                almacen = str(int(row['Suc'])).zfill(6)
+                dto_raw = resolver_descuento(row.get('Dto.Com'))
+
+                # Artículo limpio: quitar '/' y '-' (ej. "950056/01" → "95005601")
+                codigo_articulo = re.sub(r'[/\-]', '', _codigo_excel_a_str(row.get('Articulo', '')))
+                descripcion = str(row.get('Descripcion', '')).strip().upper()
+                talle = _codigo_excel_a_str(row.get('Talle', ''))
+
+                registros_cegid.append({
+                    'CAB': 'ZCOC1_',
+                    'REFERENCIA INTERNA': referencia_formateada,
+                    'FECHA': fecha_str,
+                    'COD PROVEEDOR': 'FLING',
+                    'CODIGO BARRAS': codigo_barras,
+                    'CANTIDAD': cantidad,
+                    'PRECIO': formatear_precio(precio_float),
+                    'ALMACEN': almacen,
+                    'ESTABLECIMIENTO': establecimiento,
+                    'DESCUENTO': dto_raw,
+                })
+                items_auditoria.append(armar_item_auditoria(
+                    barras=codigo_barras,
+                    articulo=codigo_articulo,
+                    precio_float=precio_float,
+                    detalles={
+                        'Material': codigo_articulo,
+                        'Descripción': descripcion,
+                        'Size': talle,
+                        'Codigo_EAN': codigo_barras,
+                        'Precio': precio_float,
+                    },
+                ))
+
+            except Exception as e:
+                print(f"❌ Error en fila {i}: {e}")
+                continue
+
+        if not registros_cegid:
+            return None
+
+        return ejecutar_auditoria_y_exportar(
+            items_auditoria, registros_cegid, output_path,
+            proveedor='John Foos', conflictos_suc=conflictos_suc,
+            ean_vacios=ean_vacios,
+            sort_by=None,
+        )
+
+    except Exception as e:
+        raise RuntimeError(f"Error al procesar el archivo John Foos: {e}")

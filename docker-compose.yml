@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql_server
+    ports:
+      - "1433:1433"
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - sql_server_data:/var/opt/mssql 
+volumes:
+  sql_server_data: # Define el volumen persistente para la base de datos localemente

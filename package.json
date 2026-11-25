@@ -1,0 +1,23 @@
+{
+  "name": "sistemadeconversiones_v2",
+  "version": "1.0.0",
+  "description": "Este sistema es la versión 2 de mi sistema de conversor inicial con la principal diferencia es que hice el desacoplamiento de capas por frontend (streamlit) y backend (flask), ademas utlizo Docker Compose.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danielarodiaz/SistemaDeConversionesV2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/danielarodiaz/SistemaDeConversionesV2/issues"
+  },
+  "homepage": "https://github.com/danielarodiaz/SistemaDeConversionesV2#readme",
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}

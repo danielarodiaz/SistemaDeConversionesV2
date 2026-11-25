@@ -1,0 +1,101 @@
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.scripts.abm_articulos.exportadores import (
+    ITCC_HEADER,
+    ITEC_HEADER,
+    LCOC_HEADER,
+    LPMC_HEADER,
+    fila_comp,
+    fila_itec,
+    _precio_entero,
+)
+
+
+def test_columnas_exportadores_abm():
+    articulo = SimpleNamespace(
+        codigo="ART1",
+        descripcion="Articulo prueba",
+        tipoProducto="TP",
+        descripcionProducto="Tipo",
+        grupo="GR",
+        descripciongrupo="Grupo",
+        grupoSAP="SAP",
+        descripcionGrupoSAP="Grupo SAP",
+        marca="M",
+        descripcionMarca="Marca",
+        genero="G",
+        descripcionGenero="Genero",
+        presentacion="S",
+        descripcionPresentacion="Presentacion",
+        uso="U",
+        descripcionUso="Uso",
+        promo="P",
+        descripcionPromo="Promo",
+        codigoBarra="7790001",
+        talle="T",
+        descripcionTalle="Talle",
+        valorTalle="42",
+        descripcionValorTalle="42",
+        color="NEG",
+        descripcionColor="Negro",
+        valor="001",
+        descripcionValor="Negro",
+        nombreProveedor="Proveedor",
+        codigoMedida="CM",
+        tipoMedida="Numerico",
+        medida="AR",
+        codigoGen="H",
+        genero2="Hombre",
+        subtipo="ST",
+        codigoCapsula="CAP",
+        descripcionCapsula="Capsula",
+        codigoDivision="DIV",
+        descripcionDivision="Division",
+        codigoTemporada="TEMP",
+        descripcionTemporada="Temporada",
+    )
+    complementario = SimpleNamespace(
+        codigo="ART1",
+        codigoEdad="AD",
+        codigoMaterial="MAT",
+        codigoSegmentacionProveedor="SP",
+        codigoSegmentacionMarathon="SM",
+        codigoVidriera="V",
+        codigoAnio="2026",
+        codigoBarra="7790001",
+        objetivoGeneral="OBJ",
+    )
+
+    assert len(fila_itec(articulo)) == len(ITEC_HEADER)
+    art_row = fila_itec(articulo)
+    assert len(ITEC_HEADER) == 97
+    assert ITEC_HEADER.index("Departamento") == 19
+    assert ITEC_HEADER.index("Codigo_de_Barra") == 49
+    assert ITEC_HEADER.index("Proveedor_Habitual") == 66
+    assert ITEC_HEADER.index("CODIGO") == 88
+    assert ITEC_HEADER.index("Subtipo") == 93
+    assert ITEC_HEADER.index("codigoCapsula") == 94
+    assert ITEC_HEADER.index("codigoDivision") == 95
+    assert ITEC_HEADER.index("codigoTemporada") == 96
+    assert art_row[2] == "ARTICULO PRUEBA"
+    assert art_row[49] == "7790001"
+    assert art_row[66] == "Proveedor"
+    assert art_row[88] == "CM"
+    assert art_row[93] == "ST"
+    assert art_row[94] == "CAP"
+    assert art_row[95] == "DIV"
+    assert art_row[96] == "TEMP"
+    assert art_row[ITEC_HEADER.index("Grupo")] == ""
+    assert art_row[ITEC_HEADER.index("Desc_Grupo")] == ""
+    assert art_row[ITEC_HEADER.index("Subtipo")] == "ST"
+    assert len(["LCOC1_", "PERMA", "LCMAR", "1,00", "ART1"]) == len(LCOC_HEADER)
+    assert len(["LPMC1_", "ART1", "2"]) == len(LPMC_HEADER)
+    assert _precio_entero("159999.00") == "159999"
+    assert _precio_entero("159999,00") == "159999"
+    assert len(fila_comp(complementario, "CEGID1")) == len(ITCC_HEADER)

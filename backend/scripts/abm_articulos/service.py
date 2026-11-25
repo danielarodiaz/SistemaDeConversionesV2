@@ -1,0 +1,596 @@
+import os
+import time
+
+from sqlalchemy import func, text
+
+from backend.config import OUTPUT_FOLDER
+from backend.models import (
+    ABMArticuloLote,
+    Articulo,
+    ArticuloComplementario,
+    Proveedor,
+    ProveedorMarca,
+    TalleMaestro,
+    año,
+    capsula,
+    color,
+    division,
+    edad,
+    genero,
+    marca,
+    markup,
+    material,
+    objetivoGeneral,
+    precioCompra,
+    precioVenta,
+    promo,
+    sap,
+    segmentacionMarathon,
+    segmentacionProveedor,
+    presentacion,
+    subtipo,
+    temporada,
+    tipoProducto,
+    uso,
+    vidriera,
+)
+from backend.scripts.abm_articulos.exportadores import generar_csv_complementario_abm, generar_zip_abm_articulos
+from backend.services.unit_of_work import UnitOfWork
+from backend.utils.cegid_utils import obtener_codigos_cruzar_articulos
+
+
+CATALOGOS = {
+    "anios": (año, "codigoAnio", "descripcionAño"),
+    "subtipos": (subtipo, "codigoSubtipo", "descripcionSubtipo"),
+    "capsulas": (capsula, "codigoCapsula", "descripcionCapsula"),
+    "colores": (color, "codigoColor", "descripcionColor"),
+    "divisiones": (division, "codigoDivision", "descripcionDivision"),
+    "edades": (edad, "codigoEdad", "descripcionEdad"),
+    "generos": (genero, "codigoGenero", "descripcionGenero"),
+    "marcas": (marca, "codigoMarca", "descripcionMarca"),
+    "materiales": (material, "codigoMaterial", "descripcionMaterial"),
+    "objetivos": (objetivoGeneral, "codigoObjetivoGeneral", "descripcionObjetivoGeneral"),
+    "promos": (promo, "codigoPromo", "descripcionPromo"),
+    "sap": (sap, "codigoGrupoSap", "descripcionGrupoSap"),
+    "segmentaciones_marathon": (
+        segmentacionMarathon,
+        "codigoSegmentacionMarathon",
+        "descripcionSegmentacionMarathon",
+    ),
+    "segmentaciones_proveedor": (
+        segmentacionProveedor,
+        "codigoSegmentacionProveedor",
+        "descripcionSegmentacionProveedor",
+    ),
+    "presentaciones": (presentacion, "codigoPresentacion", "descripcionPresentacion"),
+    "temporadas": (temporada, "codigoTemporada", "descripcionTemporada"),
+    "tipos_producto": (tipoProducto, "codigoTipoProducto", "descripcionTipoProducto"),
+    "usos": (uso, "codigoUso", "descripcionUso"),
+    "vidrieras": (vidriera, "codigoVidriera", "descripcionVidriera"),
+}
+
+
+def _catalog_item(row, codigo_attr, descripcion_attr):
+    codigo = getattr(row, codigo_attr, "") or ""
+    descripcion = getattr(row, descripcion_attr, "") or ""
+    item = {
+        "id": row.id,
+        "codigo": str(codigo),
+        "descripcion": str(descripcion),
+        "label": f"{codigo} - {descripcion}".strip(" -"),
+    }
+    if isinstance(row, color):
+        item["valor"] = row.valor or ""
+        item["descripcionValor"] = row.descripcionValor or ""
+        item["label"] = f"{codigo} - {descripcion} / {row.valor or ''}".strip(" /")
+    return item
+
+
+def _tipo_markup(tipo_codigo):
+    tipo = str(tipo_codigo or "").strip().lower()
+    if tipo == "cal":
+        return "cal"
+    if tipo == "ind":
+        return "ind"
+    return "resto"
+
+
+def obtener_catalogos():
+    now = time.time()
+    cache = getattr(obtener_catalogos, "_cache", None)
+    if cache and now - cache["ts"] < 60:
+        return cache["data"]
+
+    with UnitOfWork() as uow:
+        data = {}
+        for nombre, (model, codigo_attr, descripcion_attr) in CATALOGOS.items():
+            rows = uow.session.query(model).order_by(getattr(model, codigo_attr)).all()
+            data[nombre] = [_catalog_item(row, codigo_attr, descripcion_attr) for row in rows]
+        data["siluetas"] = data.get("presentaciones", [])
+        data["canales"] = data.get("subtipos", [])
+
+        proveedores = (
+            uow.session.query(Proveedor)
+            .filter(func.upper(func.ltrim(func.rtrim(func.coalesce(Proveedor.tipo, "")))) == "MERCADERIA")
+            .order_by(Proveedor.razon_social)
+            .all()
+        )
+        data["proveedores"] = [
+            {
+                "id": p.id,
+                "codigo": p.cod_prov or "",
+                "descripcion": p.razon_social or p.marca or "",
+                "label": f"{p.cod_prov or ''} - {p.razon_social or p.marca or ''}".strip(" -"),
+            }
+            for p in proveedores
+        ]
+        relaciones = (
+            uow.session.query(ProveedorMarca, marca)
+            .join(marca, marca.id == ProveedorMarca.marca_id)
+            .filter(ProveedorMarca.activo == 1)
+            .order_by(marca.descripcionMarca)
+            .all()
+        )
+        marcas_por_proveedor = {}
+        for relacion, marca_row in relaciones:
+            marcas_por_proveedor.setdefault(str(relacion.proveedor_id), []).append(
+                _catalog_item(marca_row, "codigoMarca", "descripcionMarca")
+            )
+        data["marcas_por_proveedor"] = marcas_por_proveedor
+
+        talles = uow.session.query(TalleMaestro).order_by(TalleMaestro.codigoTalle, TalleMaestro.valorTalle).all()
+        data["talles"] = [
+            {
+                "id": t.id,
+                "codigo": t.codigoTalle or "",
+                "descripcion": t.descripcionTalle or "",
+                "codigoBarra": t.codigoBarra or "",
+                "valorTalle": t.valorTalle or "",
+                "descripcionValorTalle": t.descripcionValorTalle or "",
+                "codigoMedida": t.codigoMedida or "",
+                "tipoMedida": t.tipoMedida or "",
+                "medida": t.medida or "",
+                "codigoGen": t.codigoGen or "",
+                "genero": t.genero or "",
+                "label": f"{t.codigoTalle or ''} - {t.valorTalle or ''} - {t.descripcionTalle or ''}".strip(" -"),
+            }
+            for t in talles
+        ]
+        data["markups"] = [
+            {
+                "marca_id": m.marca_id,
+                "tipo": str(m.tipoProducto or "").strip().lower(),
+                "tipo_normalizado": _tipo_markup(m.tipoProducto),
+                "markup": float(m.markup or 0),
+            }
+            for m in uow.session.query(markup).all()
+        ]
+
+        obtener_catalogos._cache = {"ts": now, "data": data}
+        return data
+
+
+def _clear_catalogos_cache():
+    if hasattr(obtener_catalogos, "_cache"):
+        delattr(obtener_catalogos, "_cache")
+
+
+obtener_catalogos.cache_clear = _clear_catalogos_cache
+
+
+def _get(dct, key, default=""):
+    value = dct.get(key, default)
+    return default if value is None else value
+
+
+def _upper(valor):
+    return str(valor or "").upper()
+
+
+def _next_articulo_id(session):
+    actual = session.execute(
+        text("SELECT ISNULL(MAX(id), 0) FROM dbo.articulos WITH (UPDLOCK, HOLDLOCK)")
+    ).scalar()
+    return int(actual or 0) + 1
+
+
+def _normalizar_lote_uuid(lote_uuid):
+    return str(lote_uuid or "legacy-default").strip() or "legacy-default"
+
+
+def asegurar_lote(session, lote_uuid=None):
+    lote_uuid = _normalizar_lote_uuid(lote_uuid)
+    lote = session.query(ABMArticuloLote).filter(ABMArticuloLote.uuid == lote_uuid).one_or_none()
+    if lote:
+        return lote
+    lote = ABMArticuloLote(uuid=lote_uuid, descripcion="Mesa de trabajo ABM Articulos", estado="activo")
+    session.add(lote)
+    session.flush()
+    return lote
+
+
+def crear_borrador(payload, lote_uuid=None):
+    base = payload.get("base") or {}
+    comp = payload.get("complementario") or {}
+    talles = payload.get("talles") or []
+    precios = payload.get("precios") or {}
+    lote_uuid = _normalizar_lote_uuid(lote_uuid or payload.get("lote_uuid"))
+    if not talles:
+        raise ValueError("Selecciona al menos un talle.")
+    if not _get(base, "codigo"):
+        raise ValueError("El codigo del articulo es obligatorio.")
+    if float(precios.get("precioVenta") or 0) <= float(precios.get("precioCompra") or 0):
+        raise ValueError("El precio de venta debe ser mayor al precio de compra.")
+
+    with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
+        next_id = _next_articulo_id(uow.session)
+        creados = []
+        for talle in talles:
+            codigo_barra = _get(talle, "codigoBarra") or f"{_get(base, 'codigo')}-{_get(talle, 'valorTalle') or _get(talle, 'codigo')}"
+            articulo = Articulo(
+                id=next_id,
+                codigo=_get(base, "codigo"),
+                descripcion=_upper(_get(base, "descripcion")),
+                tipoProducto=_get(base, "tipoProducto"),
+                descripcionProducto=_get(base, "descripcionProducto"),
+                grupo=_get(base, "grupo"),
+                descripciongrupo=_get(base, "descripcionGrupo"),
+                grupoSAP=_get(base, "grupoSAP"),
+                descripcionGrupoSAP=_get(base, "descripcionGrupoSAP"),
+                marca=_get(base, "marca"),
+                descripcionMarca=_get(base, "descripcionMarca"),
+                genero=_get(base, "genero"),
+                descripcionGenero=_get(base, "descripcionGenero"),
+                presentacion=_get(base, "presentacion") or _get(base, "silueta"),
+                descripcionPresentacion=_get(base, "descripcionPresentacion") or _get(base, "descripcionSilueta"),
+                uso=_get(base, "uso"),
+                descripcionUso=_get(base, "descripcionUso"),
+                promo=_get(base, "promo"),
+                descripcionPromo=_get(base, "descripcionPromo"),
+                codigoBarra=codigo_barra,
+                talle=_get(talle, "codigo"),
+                descripcionTalle=_get(talle, "descripcion"),
+                valorTalle=_get(talle, "valorTalle"),
+                descripcionValorTalle=_get(talle, "descripcionValorTalle"),
+                color=_get(base, "color"),
+                descripcionColor=_get(base, "descripcionColor"),
+                valor=_get(base, "valorColor"),
+                descripcionValor=_get(base, "descripcionValorColor"),
+                nombreProveedor=_get(base, "nombreProveedor"),
+                codigoMedida=_get(talle, "codigoMedida"),
+                tipoMedida=_get(talle, "tipoMedida"),
+                medida=_get(talle, "medida"),
+                codigoGen=_get(base, "codigoGen") or _get(talle, "codigoGen"),
+                genero2=_get(base, "genero2") or _get(talle, "genero"),
+                subtipo=_get(base, "subtipo") or _get(base, "canal"),
+                codigoCapsula=_get(base, "codigoCapsula"),
+                descripcionCapsula=_get(base, "descripcionCapsula"),
+                codigoDivision=_get(base, "codigoDivision"),
+                descripcionDivision=_get(base, "descripcionDivision"),
+                codigoTemporada=_get(base, "codigoTemporada"),
+                descripcionTemporada=_get(base, "descripcionTemporada"),
+                sector="base",
+                estado="borrador",
+                lote_id=lote.id,
+            )
+            complementario = ArticuloComplementario(
+                codigo=articulo.codigo,
+                codigoEdad=_get(comp, "codigoEdad"),
+                codigoMaterial=_get(comp, "codigoMaterial"),
+                codigoSegmentacionProveedor=_get(comp, "codigoSegmentacionProveedor"),
+                codigoSegmentacionMarathon=_get(comp, "codigoSegmentacionMarathon"),
+                codigoVidriera=_get(comp, "codigoVidriera"),
+                codigoAnio=_get(comp, "codigoAnio"),
+                codigoBarra=codigo_barra,
+                codigoCruzar=codigo_barra,
+                objetivoGeneral=_get(comp, "objetivoGeneral"),
+                sector="base",
+                estado="borrador",
+                lote_id=lote.id,
+            )
+            uow.session.add(articulo)
+            uow.session.add(complementario)
+            creados.append(articulo)
+            next_id += 1
+
+        if "precioCompra" in precios:
+            uow.session.add(precioCompra(codigoArticulo=_get(base, "codigo"), precioCompra=precios.get("precioCompra") or 0, lote_id=lote.id))
+        if "precioVenta" in precios:
+            uow.session.add(precioVenta(codigoArticulo=_get(base, "codigo"), precioVenta=precios.get("precioVenta") or 0, lote_id=lote.id))
+
+        uow.session.flush()
+        return {"items": [_serializar_articulo(a) for a in creados], "created": len(creados)}
+
+
+def _serializar_articulo(articulo):
+    return {
+        "id": articulo.id,
+        "Código de Barra": articulo.codigoBarra,
+        "Codigo": articulo.codigo,
+        "Descripción": articulo.descripcion,
+        "Tipo de producto": articulo.tipoProducto,
+        "Desc Tipo de Producto": articulo.descripcionProducto,
+        "Grupo": articulo.grupo,
+        "Desc Grupo": articulo.descripciongrupo,
+        "Grupo SAP B1": articulo.grupoSAP,
+        "Desc Grupo SAP B1": articulo.descripcionGrupoSAP,
+        "Departamento": "",
+        "Desc Departamento": "",
+        "Marca": articulo.marca,
+        "Desc Marca": articulo.descripcionMarca,
+        "Genero": articulo.genero,
+        "Desc Genero": articulo.descripcionGenero,
+        "Presentacion": articulo.presentacion,
+        "Desc Presentacion": articulo.descripcionPresentacion,
+        "Uso": articulo.uso,
+        "Desc Uso": articulo.descripcionUso,
+        "Talle": articulo.talle,
+        "Desc. Talle": articulo.descripcionTalle,
+        "Valor Talle": articulo.valorTalle,
+        "Des. Valor Talle": articulo.descripcionValorTalle,
+        "Color": articulo.color,
+        "Des. Color Talle": articulo.descripcionColor,
+        "Valor Color": articulo.valor,
+        "Desc. Valor Color": articulo.descripcionValor,
+        "Proveedor Habitual": articulo.nombreProveedor,
+        "Codigo Medida": articulo.codigoMedida,
+        "Nombre": articulo.tipoMedida,
+        "Valor": articulo.medida,
+        "Codigo Genero": articulo.codigoGen,
+        "Valor Genero": articulo.genero2,
+        "Subtipo": articulo.subtipo,
+    }
+
+
+def listar_borradores(lote_uuid=None):
+    with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
+        rows = (
+            uow.session.query(Articulo)
+            .filter(Articulo.sector == "base", Articulo.estado == "borrador", Articulo.lote_id == lote.id)
+            .order_by(Articulo.created_at.desc(), Articulo.id.desc())
+            .all()
+        )
+        return [_serializar_articulo(row) for row in rows]
+
+
+def eliminar_borrador(articulo_id, lote_uuid=None):
+    with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
+        articulo = (
+            uow.session.query(Articulo)
+            .filter(Articulo.id == articulo_id, Articulo.sector == "base", Articulo.estado == "borrador", Articulo.lote_id == lote.id)
+            .one_or_none()
+        )
+        if not articulo:
+            return False
+        (
+            uow.session.query(ArticuloComplementario)
+            .filter(
+                ArticuloComplementario.codigo == articulo.codigo,
+                ArticuloComplementario.codigoBarra == articulo.codigoBarra,
+                ArticuloComplementario.sector == "base",
+                ArticuloComplementario.estado == "borrador",
+                ArticuloComplementario.lote_id == lote.id,
+            )
+            .delete(synchronize_session=False)
+        )
+        uow.session.delete(articulo)
+        return True
+
+
+def eliminar_borradores(articulo_ids, lote_uuid=None):
+    borrador_ids = [int(i) for i in (articulo_ids or []) if i is not None]
+    if not borrador_ids:
+        return 0
+
+    eliminados = 0
+    with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
+        articulos = (
+            uow.session.query(Articulo)
+            .filter(Articulo.id.in_(borrador_ids), Articulo.sector == "base", Articulo.estado == "borrador", Articulo.lote_id == lote.id)
+            .all()
+        )
+        for articulo in articulos:
+            (
+                uow.session.query(ArticuloComplementario)
+                .filter(
+                    ArticuloComplementario.codigo == articulo.codigo,
+                    ArticuloComplementario.codigoBarra == articulo.codigoBarra,
+                    ArticuloComplementario.sector == "base",
+                    ArticuloComplementario.estado == "borrador",
+                    ArticuloComplementario.lote_id == lote.id,
+                )
+                .delete(synchronize_session=False)
+            )
+            uow.session.delete(articulo)
+            eliminados += 1
+    return eliminados
+
+
+def _precio_map(session, model, campo, lote_id=None):
+    query = session.query(model)
+    if lote_id is not None and hasattr(model, "lote_id"):
+        query = query.filter(model.lote_id == lote_id)
+    rows = query.order_by(model.id).all()
+    data = {}
+    for row in rows:
+        codigo = str(row.codigoArticulo or "")
+        if codigo:
+            data[codigo] = getattr(row, campo)
+    return data
+
+
+def exportar_borradores(articulo_ids=None, lote_uuid=None):
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
+        ids = [int(i) for i in (articulo_ids or []) if i is not None]
+        query = uow.session.query(Articulo).filter(
+            Articulo.sector == "base",
+            Articulo.estado == "borrador",
+            Articulo.lote_id == lote.id,
+        )
+        if ids:
+            query = query.filter(Articulo.id.in_(ids))
+        articulos = query.order_by(Articulo.codigo, Articulo.id).all()
+        if not articulos:
+            raise ValueError("No hay borradores pendientes para exportar.")
+
+        pares_articulo = {
+            (str(articulo.codigo or "").strip(), str(articulo.codigoBarra or "").strip())
+            for articulo in articulos
+        }
+        complementarios_candidatos = (
+            uow.session.query(ArticuloComplementario)
+            .filter(
+                ArticuloComplementario.sector == "base",
+                ArticuloComplementario.estado == "borrador",
+                ArticuloComplementario.lote_id == lote.id,
+            )
+            .order_by(ArticuloComplementario.codigo, ArticuloComplementario.id)
+            .all()
+        )
+        complementarios = [
+            comp for comp in complementarios_candidatos
+            if (str(comp.codigo or "").strip(), str(comp.codigoBarra or "").strip()) in pares_articulo
+        ]
+        precios_compra = _precio_map(uow.session, precioCompra, "precioCompra", lote.id)
+        precios_venta = _precio_map(uow.session, precioVenta, "precioVenta", lote.id)
+        zip_path = generar_zip_abm_articulos(
+            articulos,
+            complementarios,
+            precios_compra,
+            precios_venta,
+            {},
+            OUTPUT_FOLDER,
+        )
+
+        for articulo in articulos:
+            articulo.estado = "exportado"
+        for comp in complementarios:
+            comp.estado = "exportado"
+
+        return {
+            "filename": os.path.basename(zip_path),
+            "exported": len(articulos),
+            "fallbacks": 0,
+        }
+
+
+def _serializar_complementario(comp):
+    return {
+        "id": comp.id,
+        "ID Articulo": comp.codigoCruzar or "",
+        "Codigo Articulo": comp.codigo,
+        "Codigo Barra": comp.codigoBarra,
+        "Edad": comp.codigoEdad,
+        "Material": comp.codigoMaterial,
+        "Segmentacion Proveedor": comp.codigoSegmentacionProveedor,
+        "Segmentacion Marathon": comp.codigoSegmentacionMarathon,
+        "Vidriera": comp.codigoVidriera,
+        "Año": comp.codigoAnio,
+        "Objetivo Gen": comp.objetivoGeneral,
+    }
+
+
+def listar_complementarios(lote_uuid=None):
+    with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
+        rows = (
+            uow.session.query(ArticuloComplementario)
+            .filter(
+                ArticuloComplementario.sector == "base",
+                ArticuloComplementario.estado == "exportado",
+                ArticuloComplementario.lote_id == lote.id,
+            )
+            .order_by(ArticuloComplementario.codigo, ArticuloComplementario.id)
+            .all()
+        )
+        return [_serializar_complementario(row) for row in rows]
+
+
+def actualizar_complementario(comp_id, payload, lote_uuid=None):
+    campos = {
+        "Edad": "codigoEdad",
+        "Material": "codigoMaterial",
+        "Segmentacion Proveedor": "codigoSegmentacionProveedor",
+        "Segmentacion Marathon": "codigoSegmentacionMarathon",
+        "Vidriera": "codigoVidriera",
+        "Año": "codigoAnio",
+        "Objetivo Gen": "objetivoGeneral",
+    }
+    with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
+        comp = uow.session.get(ArticuloComplementario, int(comp_id))
+        if not comp or comp.sector != "base" or comp.estado != "exportado" or comp.lote_id != lote.id:
+            return None
+        for externo, interno in campos.items():
+            if externo in payload:
+                setattr(comp, interno, payload.get(externo) or "")
+        uow.session.flush()
+        return _serializar_complementario(comp)
+
+
+def eliminar_complementarios(comp_ids=None, borrar_todo=False, lote_uuid=None):
+    with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
+        query = uow.session.query(ArticuloComplementario).filter(
+            ArticuloComplementario.sector == "base",
+            ArticuloComplementario.estado == "exportado",
+            ArticuloComplementario.lote_id == lote.id,
+        )
+        if not borrar_todo:
+            ids = [int(i) for i in (comp_ids or []) if i is not None]
+            if not ids:
+                return 0
+            query = query.filter(ArticuloComplementario.id.in_(ids))
+        deleted = query.delete(synchronize_session=False)
+        return deleted
+
+
+def exportar_complementarios(comp_ids=None, lote_uuid=None):
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    with UnitOfWork() as uow:
+        lote = asegurar_lote(uow.session, lote_uuid)
+        query = uow.session.query(ArticuloComplementario).filter(
+            ArticuloComplementario.sector == "base",
+            ArticuloComplementario.estado == "exportado",
+            ArticuloComplementario.lote_id == lote.id,
+        )
+        ids = [int(i) for i in (comp_ids or []) if i is not None]
+        if ids:
+            query = query.filter(ArticuloComplementario.id.in_(ids))
+        complementarios = query.order_by(ArticuloComplementario.codigo, ArticuloComplementario.id).all()
+        if not complementarios:
+            raise ValueError("No hay complementarios para exportar.")
+
+        pares = [
+            (str(c.codigo or "").strip(), str(c.codigoBarra or "").strip())
+            for c in complementarios
+        ]
+        pares.extend((codigo, "") for codigo in {str(c.codigo or "").strip() for c in complementarios if c.codigo})
+        codigos_cruzar = obtener_codigos_cruzar_articulos(pares)
+        faltantes = [par for par in pares if par not in codigos_cruzar]
+        if faltantes:
+            detalle = ", ".join(
+                f"{codigo}/{barra or 'PADRE'}"
+                for codigo, barra in faltantes[:8]
+            )
+            extra = "" if len(faltantes) <= 8 else f" y {len(faltantes) - 8} mas"
+            raise ValueError(
+                "No se pudo obtener el ID de CEGID para el complementario. "
+                f"Registros sin match: {detalle}{extra}. "
+                "Importa primero el ART en CEGID o revisa codigo/codigo de barra y vuelve a intentar."
+            )
+        for comp in complementarios:
+            clave = (str(comp.codigo or "").strip(), str(comp.codigoBarra or "").strip())
+            comp.codigoCruzar = codigos_cruzar[clave]
+        path = generar_csv_complementario_abm(complementarios, codigos_cruzar, OUTPUT_FOLDER)
+        return {
+            "filename": os.path.basename(path),
+            "exported": len(complementarios),
+            "fallbacks": 0,
+        }
