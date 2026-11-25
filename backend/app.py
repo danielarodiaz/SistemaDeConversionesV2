@@ -55,6 +55,7 @@ from backend.scripts.pedido_proveedor.adida_processor     import process_adidas_
 from backend.scripts.pedido_proveedor.bestsox_processor   import process_bestsox_pedido_proveedor
 from backend.scripts.pedido_proveedor.braku_processor     import process_braku_pedido_proveedor
 from backend.scripts.pedido_proveedor.diadora_processor   import process_diadora_pedido_proveedor
+from backend.scripts.pedido_proveedor.destreza_processor  import process_destreza_pedido_proveedor
 from backend.scripts.pedido_proveedor.johnfoos_processor  import process_johnfoos_pedido_proveedor
 from backend.scripts.pedido_proveedor.kdy_processor       import process_kdy_pedido_proveedor
 from backend.scripts.pedido_proveedor.kosiuko_processor   import process_kosiuko_pedido_proveedor
@@ -486,6 +487,7 @@ PROCESSOR_MAP = {
     "bestsox":          {"func": process_bestsox_pedido_proveedor,  "ext": ".csv"},
     "braku":            {"func": process_braku_pedido_proveedor,    "ext": ".csv"},
     "diadora":          {"func": process_diadora_pedido_proveedor,  "ext": ".csv"},
+    "destreza":         {"func": process_destreza_pedido_proveedor, "ext": ".csv"},
     # "distrinando":    {"func": process_distrinando_pedido_proveedor, "ext": ".csv"},
     "johnfoos":         {"func": process_johnfoos_pedido_proveedor, "ext": ".csv"},
     "kdy":              {"func": process_kdy_pedido_proveedor,      "ext": ".csv"},
@@ -517,6 +519,7 @@ EXPECTED_INPUT_EXT = {
     "bestsox":          ".xlsx",
     "braku":            ".xlsx",
     "diadora":          ".xlsx",
+    "destreza":         ".xlsx",
     "distrinando":      ".xlsx",
     "johnfoos":         ".xlsx",
     "kdy":              ".xlsx",
@@ -545,6 +548,7 @@ AUDITORIA_PROMOS_PROVIDER_KEYS = {
     "bestsox",
     "braku",
     "diadora",
+    "destreza",
     "johnfoos",
     "kdy",
     "kosiuko",
